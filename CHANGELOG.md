@@ -2,6 +2,44 @@
 
 All notable changes to Digestr.ai will be documented in this file.
 
+
+
+
+
+
+
+## [2.1.0] - 2025-06-29
+
+### Added
+- **Interactive Mode**: Conversation-based news analysis for deeper exploration
+  - Launch with `--interactive` flag after briefing generation
+  - Natural language Q&A about articles from current session
+  - Special commands for article navigation:
+    - `/articles` - List all available articles
+    - `/categories` - Show articles grouped by category
+    - `/recent` - Display most recently published articles
+    - `/important` - Show highest-scored articles
+    - `/read [number]` - View full content of specific article
+  - Context-aware responses with hallucination prevention
+  - Session-based conversation memory
+  - Clear distinction between current news and historical context
+
+### Fixed
+- Interactive module syntax errors and broken imports
+- Conversation history tracking now properly implemented
+- Context building now includes all articles, not just top 5
+- LLM prompting improved to prevent fabrication of events
+
+### Enhanced
+- Better error handling in conversation loops
+- Improved article context management for large sets
+- Type hints and imports corrected throughout interactive module
+
+
+
+
+
+
 ## [2.0.0] - 2025-06-28
 
 ### 🎉 Major Release: Complete Architecture Transformation

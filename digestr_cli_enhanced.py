@@ -10,7 +10,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 import asyncio
 import argparse
 from datetime import datetime
-
+from digestr.features.interactive import InteractiveSession
 from digestr.core.database import DatabaseManager
 from digestr.core.fetcher import FeedManager
 from digestr.llm_providers.ollama import OllamaProvider
@@ -127,7 +127,9 @@ async def main():
     # Add briefing command
     briefing_parser = subparsers.add_parser('briefing', help='Generate AI news briefing')
     briefing_parser.add_argument('--style', choices=['comprehensive', 'quick', 'analytical'], 
-                                default='comprehensive', help='Briefing style')
+                            default='comprehensive', help='Briefing style')
+    briefing_parser.add_argument('--interactive', '-i', action='store_true',
+                            help='Start interactive Q&A session after briefing')
     
     args = parser.parse_args()
     
@@ -156,7 +158,39 @@ async def main():
             print("📰 No recent articles found. Try: python digestr_cli.py fetch")
     
     elif args.command == 'briefing':
+        # First generate the briefing
         await generate_briefing()
+        
+        # Then optionally start interactive mode
+        if hasattr(args, 'interactive') and args.interactive:
+            print("\n🎯 Starting interactive session...")
+            print("💡 You can now ask follow-up questions about the news!")
+            
+            # Get recent articles for the session
+            db = DatabaseManager()
+            articles = db.get_recent_articles(hours=24, limit=30)
+            
+            if articles:
+                # Convert to dict format
+                article_dicts = []
+                for article in articles:
+                    article_dicts.append({
+                        'title': article.title,
+                        'summary': article.summary,
+                        'content': article.content,
+                        'url': article.url,
+                        'category': article.category,
+                        'source': article.source,
+                        'published_date': article.published_date,
+                        'importance_score': article.importance_score
+                    })
+                
+                # Start interactive session
+                llm = OllamaProvider()
+                session = InteractiveSession(article_dicts, llm)
+                await session.start()
+            else:
+                print("No articles available for interactive session.")
         
     else:
         parser.print_help()
