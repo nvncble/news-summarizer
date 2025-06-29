@@ -1,12 +1,17 @@
 
 # 🤖 Digestr.ai - Intelligent News Summarization Platform
+[![Version](https://img.shields.io/badge/version-2.1.0-blue.svg)](https://github.com/nvncble/news-summarizer)
 
-[![Version](https://img.shields.io/badge/version-2.0.0-blue.svg)](https://github.com/nvncble/news-summarizer)
 [![Python](https://img.shields.io/badge/python-3.8+-green.svg)](https://python.org)
 
 > Transform overwhelming news into personalized, AI-powered briefings with local-first architecture and community-driven enhancements.
 
-## ✨ What's New in v2.0.0
+## ✨ What's New in v2.1.0
+
+- 🎯 **Interactive Mode**: Deep-dive into your news with conversation-based Q&A
+- 💬 **Natural Language Queries**: Ask follow-up questions about any story
+- 📖 **Full Article Reading**: Access complete article content within the session
+- 🔍 **Smart Navigation**: Browse articles by category, importance, or recency
 
 - 🏗️ **Modular Architecture**: Clean, extensible codebase ready for collaboration
 - 🚀 **Enhanced CLI**: Multiple commands for granular control
@@ -14,6 +19,22 @@
 - ⚡ **Performance Boost**: 3x faster queries, 2x faster fetching
 - 🎛️ **Feature Flags**: Opt-in capabilities and experimental features
 - 📊 **Better Monitoring**: System status and health diagnostics
+
+
+
+
+🔮 What's Coming Next
+
+- 🎯 Interactive Mode: ✅ Launched in v2.1.0!
+- 🔍 Article Search: Search within your news articles (coming soon)
+- 💾 Export Conversations: Save your Q&A sessions as markdown
+- 🌐 Multi-LLM Support: OpenAI, Anthropic, and more providers
+
+
+
+
+
+
 
 ## 🚀 Quick Start
 
@@ -71,6 +92,7 @@ src/digestr/
 ├── llm_providers/     # AI integration (Ollama, OpenAI, etc.)
 ├── config/            # Settings & feature flags
 └── features/          # Advanced capabilities
+    └── interactive.py # Conversation-based news analysis (v2.1.0)
 Key Components:
 
 Database Layer: SQLite with performance optimizations
@@ -108,3 +130,20 @@ Save that file, then let's test it:
 # Test that the examples in README work
 python digestr_cli_enhanced.py status
 python digestr_cli_enhanced.py --help
+
+
+### Interactive News Analysis (New!)
+```bash
+# Get your briefing AND explore stories in-depth
+python digestr_cli_enhanced.py briefing --interactive
+
+# Short version
+python digestr_cli_enhanced.py briefing -i
+
+### Interactive Mode Commands
+Once in interactive mode, you can:
+- Ask questions: "Tell me more about the European heatwave"
+- Navigate articles: `/articles`, `/categories`, `/recent`, `/important`
+- Read full content: `/read 3` (reads article #3)
+- Get help: `help`
+- Exit: `exit` or `quit`
