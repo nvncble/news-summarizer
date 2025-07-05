@@ -1,0 +1,37 @@
+{
+    "name": "example-plugin",
+    "display_name": "Example Plugin",
+    "version": "1.0.0",
+    "author": "Your Name",
+    "description": "An example plugin demonstrating the Digestr.ai plugin system",
+    "digestr_version": ">=2.1.0",
+    "entry_point": "main.py",
+    "hooks": [
+        "interactive.command",
+        "interactive.session_end"
+    ],
+    "commands": [
+        {
+            "name": "example",
+            "description": "Example command",
+            "usage": "/example [args]"
+        }
+    ],
+    "config_schema": {
+        "enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "Enable this example plugin"
+        },
+        "message": {
+            "type": "string",
+            "default": "Hello from plugin!",
+            "description": "Custom message to display"
+        }
+    },
+    "dependencies": [],
+    "tags": [
+        "example",
+        "template"
+    ]
+}

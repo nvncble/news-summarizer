@@ -7,6 +7,7 @@ Provides conversation-based news analysis and follow-up capabilities
 import asyncio
 from typing import List, Dict, Optional
 import logging
+from digestr.core.plugin_system import PluginHooks
 
 logger = logging.getLogger(__name__)
 
@@ -17,12 +18,30 @@ class InteractiveSession:
     Enables follow-up questions and contextual discussions about news articles
     """
 
-    def __init__(self, articles: List[Dict], llm_provider):
+    def __init__(self, articles: List[Dict], llm_provider, plugin_manager=None):
+
         self.articles = articles
         self.llm_provider = llm_provider
         self.conversation_history = []
         self.session_context = self._build_session_context()
         self.max_context_length = 4000  # Token limit for context
+        self.plugin_manager = plugin_manager
+        if self.plugin_manager:
+            self.plugin_manager.execute_hook(
+                PluginHooks.INTERACTIVE_SESSION_START, 
+                session=self
+            )
+
+    async def _handle_special_command(self, command):
+        # Check if it's a plugin command first
+        if self.plugin_manager:
+            result = await self.plugin_manager.handle_command(
+                command, session_context=self
+            )
+            if result:  # Plugin handled it
+                return 
+
+
 
     def _build_session_context(self) -> str:
         """Build context summary from articles for the session"""
