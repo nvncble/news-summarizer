@@ -48,11 +48,11 @@ class OllamaProvider(LLMProvider):
         self.ollama_url = ollama_url.rstrip('/')
         self.models = models or {
             "default": "llama3.1:8b",
-            "technical": "deepseek-coder:6.7b",
+            "technical": "deepseek-r1:14b",
             "conversational": "llama3.1:8b",
             "academic": "qwen2.5:14b",
             "fast": "llama3.1:8b",
-            "detailed": "llama3.1:70b"
+            "detailed": "qwen2.5:14b"
         }
         self._available_models_cache = None
         self._cache_timestamp = 0
@@ -190,6 +190,197 @@ class OllamaProvider(LLMProvider):
                 if i < len(cat_articles):
                     article_text += "---\n"
         
+
+
+    async def generate_tiered_briefing(self, tiered_articles: Dict[str, List[Dict]], 
+                                     briefing_type: str = "comprehensive") -> str:
+        """
+        Generate a briefing using strategically tiered articles
+        """
+        if not any(tiered_articles.values()):
+            return "No articles available for briefing."
+        
+        # Create tiered prompt
+        prompt = self._create_tiered_prompt(tiered_articles, briefing_type)
+        
+        # Use the conversational model for better flow
+        model = self.models.get("conversational", self.models["default"])
+        
+        logger.info(f"Generating tiered {briefing_type} briefing with {model}")
+        
+        # Generate the briefing
+        briefing = await self.generate_summary(prompt, model)
+        
+        return briefing
+    
+    def _create_tiered_prompt(self, tiered_articles: Dict[str, List[Dict]], 
+                            briefing_type: str = "comprehensive") -> str:
+        """
+        Create a conversational prompt that handles tiered content strategically
+        """
+        current_time = datetime.now().strftime("%A, %B %d, %Y at %I:%M %p")
+        
+        # Count articles and sources
+        top_count = len(tiered_articles.get('top', []))
+        mid_count = len(tiered_articles.get('mid', []))
+        quick_count = len(tiered_articles.get('quick', []))
+        total_count = top_count + mid_count + quick_count
+        
+        # Build content sections
+        content_sections = self._build_content_sections(tiered_articles)
+        
+        # Conversational style configurations
+        style_configs = {
+            "comprehensive": {
+                "greeting": "Good afternoon! I've been following the news and have quite a bit to catch you up on.",
+                "approach": "Let's dive deep into what's really happening and why it matters.",
+                "tone": "conversational but thorough"
+            },
+            "quick": {
+                "greeting": "Hey there! Quick update on what's making headlines.",
+                "approach": "I'll hit the highlights and key developments you should know about.",
+                "tone": "brisk and efficient"
+            },
+            "analytical": {
+                "greeting": "I've been analyzing today's developments and there are some interesting patterns emerging.",
+                "approach": "Let me walk you through the implications and connections I'm seeing.",
+                "tone": "thoughtful and insight-focused"
+            }
+        }
+        
+        style = style_configs.get(briefing_type, style_configs["comprehensive"])
+        
+        # Create the enhanced conversational prompt
+        prompt = f"""You are my trusted news analyst and friend. It's {current_time}, and I'm catching up on what's been happening. {style['greeting']}
+
+I've analyzed {total_count} articles from various sources and organized them by importance. {style['approach']}
+
+{content_sections}
+
+CONVERSATIONAL BRIEFING STYLE:
+- Tone: {style['tone']}
+- Flow: Natural conversation, not bullet points or formal sections
+- Connection: Weave related stories together naturally
+- Context: Explain why things matter, don't just report what happened
+- Engagement: Keep it interesting and insightful
+
+BRIEFING STRUCTURE:
+1. Start with a warm, natural greeting that acknowledges the current time
+2. Lead with the most significant developments from the TOP PRIORITY stories
+3. Naturally flow into the NOTABLE DEVELOPMENTS, connecting related themes
+4. Weave in QUICK MENTIONS of other interesting stories where relevant
+5. Throughout, explain connections between stories and their broader significance
+6. End with thoughtful insights about what these developments mean going forward
+
+IMPORTANT GUIDELINES:
+- Write in flowing paragraphs, not bullet points
+- Connect stories across categories when they relate
+- Use phrases like "Speaking of..." "This connects to..." "What's particularly interesting is..."
+- Include specific details and examples to make it engaging
+- Explain implications and why readers should care
+- Maintain a conversational, friendly tone throughout
+- Naturally mention source variety when relevant
+
+Begin your conversational briefing now:"""
+
+        return prompt
+    
+    def _build_content_sections(self, tiered_articles: Dict[str, List[Dict]]) -> str:
+        """
+        Build organized content sections for the prompt
+        """
+        sections = []
+        
+        # Top Priority Stories (detailed treatment)
+        top_articles = tiered_articles.get('top', [])
+        if top_articles:
+            sections.append("TOP PRIORITY STORIES (for detailed discussion):")
+            for i, article in enumerate(top_articles[:15], 1):  # Limit to avoid overwhelming
+                score = article.get('calculated_priority_score', 0)
+                sections.append(f"\n{i}. **{article['title']}**")
+                sections.append(f"   Source: {article.get('source', 'Unknown')} | Priority Score: {score:.1f}")
+                
+                # Use content if available, otherwise summary
+                content = article.get('content') or article.get('summary', '')
+                if len(content) > 400:
+                    content = content[:400] + "..."
+                sections.append(f"   {content}")
+                
+                # Add category context
+                category = article.get('category', 'unknown')
+                sections.append(f"   Category: {category}")
+        
+        # Notable Developments (moderate treatment)
+        mid_articles = tiered_articles.get('mid', [])
+        if mid_articles:
+            sections.append(f"\n\nNOTABLE DEVELOPMENTS (for moderate coverage):")
+            for i, article in enumerate(mid_articles[:20], 1):  # Limit for brevity
+                score = article.get('calculated_priority_score', 0)
+                sections.append(f"\n{i}. **{article['title']}** ({article.get('source', 'Unknown')})")
+                
+                # Shorter content for mid-tier
+                content = article.get('content') or article.get('summary', '')
+                if len(content) > 200:
+                    content = content[:200] + "..."
+                sections.append(f"   {content}")
+        
+        # Quick Mentions (brief treatment)
+        quick_articles = tiered_articles.get('quick', [])
+        if quick_articles:
+            sections.append(f"\n\nQUICK MENTIONS (brief notes on other stories):")
+            
+            # Group quick mentions by category for better organization
+            quick_by_category = {}
+            for article in quick_articles[:25]:  # Limit to top 25 quick mentions
+                category = article.get('category', 'other')
+                if category not in quick_by_category:
+                    quick_by_category[category] = []
+                quick_by_category[category].append(article)
+            
+            for category, cat_articles in quick_by_category.items():
+                sections.append(f"\n{category.upper().replace('_', ' ')}:")
+                for article in cat_articles[:8]:  # Max 8 per category
+                    sections.append(f"• {article['title']} ({article.get('source', 'Unknown')})")
+        
+        return "\n".join(sections)
+    
+    def _extract_key_themes(self, tiered_articles: Dict[str, List[Dict]]) -> List[str]:
+        """
+        Extract key themes across all articles for better narrative flow
+        """
+        themes = []
+        
+        # Analyze top articles for major themes
+        top_articles = tiered_articles.get('top', [])
+        
+        # Simple keyword-based theme detection
+        theme_keywords = {
+            'technology': ['ai', 'artificial intelligence', 'tech', 'innovation', 'digital'],
+            'geopolitics': ['ukraine', 'russia', 'china', 'election', 'politics', 'government'],
+            'economy': ['market', 'economy', 'business', 'financial', 'trade', 'stocks'],
+            'security': ['cyber', 'security', 'hack', 'attack', 'breach', 'threat'],
+            'health': ['health', 'medical', 'vaccine', 'disease', 'pandemic'],
+            'climate': ['climate', 'environment', 'renewable', 'sustainability', 'carbon']
+        }
+        
+        theme_counts = {theme: 0 for theme in theme_keywords.keys()}
+        
+        for article in top_articles:
+            title_lower = article.get('title', '').lower()
+            content_lower = (article.get('content', '') or article.get('summary', '')).lower()
+            full_text = f"{title_lower} {content_lower}"
+            
+            for theme, keywords in theme_keywords.items():
+                if any(keyword in full_text for keyword in keywords):
+                    theme_counts[theme] += 1
+        
+        # Return themes with significant presence
+        significant_themes = [theme for theme, count in theme_counts.items() if count >= 2]
+        
+        return significant_themes[:5]
+
+
+
         # Briefing style configurations
         style_configs = {
             "comprehensive": {
