@@ -1,0 +1,47 @@
+content:
+  include_article_links: true
+  max_articles_per_briefing: 15
+  minimum_importance: 1.0
+  skip_if_no_new_articles: true
+devspace:
+  email_simulation: true
+  mock_smtp: true
+  test_mode: true
+email:
+  enabled: false
+  provider: gmail
+  sender_email: ''
+  sender_password: ''
+  smtp_port: 587
+  smtp_server: ''
+  subject_template: "\xF0\u0178\u201C\xB0 {style} Briefing - {date}"
+  use_tls: true
+enabled: true
+export:
+  auto_export: false
+  filename_template: briefing-{style}-{date}-{time}
+  formats:
+  - markdown
+  - html
+  save_directory: ~/Downloads/digestr-exports
+scheduling:
+  briefings:
+    evening:
+      enabled: false
+      recipients:
+      - your-email@example.com
+      style: analytical
+      time: '20:00'
+    midday:
+      enabled: false
+      recipients:
+      - your-email@example.com
+      style: quick
+      time: '13:00'
+    morning:
+      enabled: true
+      recipients:
+      - your-email@example.com
+      style: comprehensive
+      time: 08:00
+  enabled: true

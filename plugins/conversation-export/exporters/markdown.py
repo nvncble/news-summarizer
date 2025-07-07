@@ -1,0 +1,201 @@
+"""
+Markdown Exporter for Digestr briefings and conversations
+"""
+
+import os
+from datetime import datetime
+from pathlib import Path
+
+
+class MarkdownExporter:
+    """Export briefings and conversations to Markdown format"""
+    
+    def __init__(self, config):
+        self.config = config
+        self.export_config = config.get("export", {})
+        
+    def export(self, content, title="Digestr Export", filename=None):
+        """
+        Export content to Markdown file
+        
+        Args:
+            content: String content to export
+            title: Title for the document
+            filename: Optional custom filename
+            
+        Returns:
+            str: Path to exported file
+        """
+        # Ensure export directory exists
+        export_dir = Path(self.export_config.get("save_directory", "~/Downloads/digestr-exports")).expanduser()
+        export_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Generate filename if not provided
+        if not filename:
+            timestamp = datetime.now()
+            template = self.export_config.get("filename_template", "export-{date}-{time}")
+            filename = template.format(
+                date=timestamp.strftime("%Y-%m-%d"),
+                time=timestamp.strftime("%H%M%S"),
+                style="export"
+            )
+        
+        # Ensure .md extension
+        if not filename.endswith('.md'):
+            filename += '.md'
+        
+        file_path = export_dir / filename
+        
+        # Create markdown content
+        markdown_content = self._create_markdown_document(content, title)
+        
+        # Write to file
+        try:
+            with open(file_path, 'w', encoding='utf-8') as f:
+                f.write(markdown_content)
+            
+            return str(file_path)
+            
+        except Exception as e:
+            raise Exception(f"Failed to write markdown file: {e}")
+    
+    def _create_markdown_document(self, content, title):
+        """Create a formatted markdown document"""
+        timestamp = datetime.now().strftime("%B %d, %Y at %I:%M %p")
+        
+        markdown = f"""# {title}
+
+*Generated on {timestamp}*
+
+---
+
+{content}
+
+---
+
+*Exported from Digestr.ai - Your Personal News Intelligence Platform*
+"""
+        
+        return markdown
+    
+    def export_briefing(self, briefing_content, articles, style="comprehensive"):
+        """
+        Export a briefing with article metadata
+        
+        Args:
+            briefing_content: The AI-generated briefing text
+            articles: List of article dictionaries
+            style: Briefing style name
+            
+        Returns:
+            str: Path to exported file
+        """
+        timestamp = datetime.now()
+        
+        # Create comprehensive markdown with article details
+        markdown_content = f"""# {style.title()} News Briefing
+
+*Generated on {timestamp.strftime("%B %d, %Y at %I:%M %p")}*
+
+## AI Summary
+
+{briefing_content}
+
+## Source Articles ({len(articles)} total)
+
+"""
+        
+        # Group articles by category
+        categories = {}
+        for article in articles:
+            cat = article.get('category', 'general')
+            if cat not in categories:
+                categories[cat] = []
+            categories[cat].append(article)
+        
+        for category, cat_articles in categories.items():
+            markdown_content += f"\n### {category.title().replace('_', ' ')}\n\n"
+            
+            for i, article in enumerate(cat_articles, 1):
+                importance = article.get('importance_score', 0)
+                importance_indicator = "🔥" if importance > 5 else "📌" if importance > 2 else "📄"
+                
+                markdown_content += f"{importance_indicator} **{article['title']}**\n"
+                markdown_content += f"   - *Source:* {article.get('source', 'Unknown')}\n"
+                markdown_content += f"   - *Published:* {article.get('published_date', 'Unknown')}\n"
+                markdown_content += f"   - *Importance:* {importance:.1f}/10\n"
+                
+                if self.export_config.get("include_article_links", True) and article.get('url'):
+                    markdown_content += f"   - *Link:* {article['url']}\n"
+                
+                # Include summary if available
+                summary = article.get('summary') or article.get('content', '')
+                if summary:
+                    preview = summary[:200] + "..." if len(summary) > 200 else summary
+                    markdown_content += f"   - *Summary:* {preview}\n"
+                
+                markdown_content += "\n"
+        
+        markdown_content += f"""
+---
+
+**Statistics:**
+- Total Articles: {len(articles)}
+- Categories: {len(categories)}
+- Briefing Style: {style.title()}
+- Export Time: {timestamp.strftime("%Y-%m-%d %H:%M:%S")}
+
+*Generated by Digestr.ai Email Scheduler Plugin*
+"""
+        
+        # Generate filename for briefing
+        filename = self.export_config.get("filename_template", "briefing-{style}-{date}-{time}").format(
+            style=style,
+            date=timestamp.strftime("%Y-%m-%d"),
+            time=timestamp.strftime("%H%M%S")
+        )
+        
+        return self.export(markdown_content, f"{style.title()} Briefing", filename)
+    
+    def export_conversation(self, conversation_history, session_context=None):
+        """
+        Export an interactive conversation session
+        
+        Args:
+            conversation_history: List of Q&A exchanges
+            session_context: Optional session context info
+            
+        Returns:
+            str: Path to exported file
+        """
+        timestamp = datetime.now()
+        
+        markdown_content = f"""# Interactive News Session
+
+*Session Date: {timestamp.strftime("%B %d, %Y at %I:%M %p")}*
+
+"""
+        
+        # Add session context if available
+        if session_context:
+            markdown_content += f"""## Session Context
+
+- Articles Available: {session_context.get('articles_count', 'Unknown')}
+- Categories: {session_context.get('categories_available', 'Unknown')}
+- Questions Asked: {len(conversation_history)}
+
+"""
+        
+        markdown_content += "## Conversation\n\n"
+        
+        # Add conversation exchanges
+        for i, exchange in enumerate(conversation_history, 1):
+            markdown_content += f"### Exchange {i}\n\n"
+            markdown_content += f"**Question:** {exchange['question']}\n\n"
+            markdown_content += f"**Answer:** {exchange['response']}\n\n"
+            markdown_content += "---\n\n"
+        
+        # Generate filename for conversation
+        filename = f"conversation-{timestamp.strftime('%Y-%m-%d_%H%M%S')}"
+        
+        return self.export(markdown_content, "Interactive Session", filename)

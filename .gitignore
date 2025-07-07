@@ -1,34 +1,236 @@
+# Digestr.ai - Comprehensive .gitignore
+
 # Python
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environments
 env/
 venv/
 ENV/
 env.bak/
 venv.bak/
+.venv/
+pyvenv.cfg
 
-# Database files
+# Database Files
 *.db
 *.sqlite
 *.sqlite3
+rss_feeds.db*
+digestr.db*
 
-# IDE
+# Configuration & Secrets
+.env
+.env.local
+.env.production
+config/secrets.json
+config/local.yaml
+**/config/private/
+**/*_private.yaml
+**/*_secret.*
+
+# User Configuration (personal settings)
+~/.digestr/config.yaml
+**/user_config.yaml
+digestr_user_config.yaml
+
+# API Keys & Credentials
+reddit_credentials.json
+openai_api_key.txt
+anthropic_key.txt
+*.pem
+*.key
+*.cert
+
+# IDE & Editor Files
 .vscode/
 .idea/
 *.swp
 *.swo
+*~
+.project
+.pydevproject
+.settings/
+*.sublime-project
+*.sublime-workspace
 
-# OS
+# OS Generated Files
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
 Thumbs.db
+desktop.ini
 
-# Logs
+# Logs & Debug
+*.log
+logs/
+debug.log
+error.log
+access.log
+digestr.log*
+**/*.log
+
+# Temporary Debug Scripts
+*_debug.py
+*_test.py
+debug_*.py
+temp_*.py
+
+# Cache Directories
+.cache/
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Jupyter Notebooks
+.ipynb_checkpoints/
+*.ipynb
+
+# Documentation Build
+docs/_build/
+site/
+.mkdocs.yml.swp
+
+# Temporary Files
+tmp/
+temp/
+*.tmp
+*.temp
+.temp/
+
+# Plugin Directories
+plugins/downloads/
+plugins/cache/
+**/plugins/**/cache/
+
+# User Data & Backups
+user_data/
+backups/
+*.backup
+*.bak
+
+# Test Files
+test_output/
+test_results/
+.pytest_cache/
+.coverage.*
+
+# Deployment
+deployment/
+docker-compose.override.yml
+.docker/
+k8s/secrets/
+
+# Machine Learning Models (if added later)
+models/
+*.pkl
+*.model
+*.weights
+
+# Archives
+*.zip
+*.tar.gz
+*.rar
+*.7z
+
+# Redis dumps (if used for caching)
+dump.rdb
+
+# Mac
+.AppleDouble
+.LSOverride
+
+# Windows
+*.stackdump
+
+# Linux
+*~
+
+# JetBrains
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# Emacs
+*~
+\#*\#
+/.emacs.desktop
+/.emacs.desktop.lock
+*.elc
+auto-save-list
+tramp
+.\#*
+
+# Vim
+[._]*.s[a-v][a-z]
+[._]*.sw[a-p]
+[._]s[a-rt-v][a-z]
+[._]ss[a-gi-z]
+[._]sw[a-p]
+
+# Digestr.ai - Email Scheduler Plugin
+# Add these lines to your .gitignore
+
+# Plugin configurations with sensitive data
+/.digestr/
+config.yaml
+**/config.yaml
+!config.yaml.template
+!**/config.yaml.template
+
+# Email automation scripts with credentials
+automated_briefing_direct.py
+briefing_scheduler_working.bat
+**/automated_briefing_*.py
+!**/automated_briefing_template.py
+
+# Database and logs
+rss_feeds.db
 *.log
 logs/
 
-# Config files with sensitive data
-config/secrets.json
+# Plugin backups
+**/backup/
+*.backup
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Environment files
 .env
+.env.local
+secrets.yaml
+credentials.yaml
