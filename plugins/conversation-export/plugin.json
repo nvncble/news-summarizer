@@ -1,9 +1,9 @@
 {
-    "name": "conversation-export",
-    "display_name": "Email Scheduler & Export",
-    "version": "1.0.0",
+    "name": "email-briefing",
+    "display_name": "Email Briefing Plugin",
+    "version": "2.0.0",
     "author": "Digestr Community",
-    "description": "Schedule automated email briefings and export summaries in multiple formats",
+    "description": "Production email briefing delivery with scheduling and export capabilities",
     "digestr_version": ">=2.1.0",
     "entry_point": "main.py",
     "hooks": [
@@ -12,26 +12,38 @@
     ],
     "commands": [
         {
-            "name": "export",
-            "description": "Export current session or briefing",
-            "usage": "/export [markdown|html] [filename]"
-        },
-        {
-            "name": "email",
-            "description": "Email briefing to recipients",
-            "usage": "/email [recipient@email.com]"
+            "name": "email-brief",
+            "description": "Send briefing via email",
+            "usage": "/email-brief [comprehensive|quick|analytical] [professional|social] [recipient@email.com]"
         },
         {
             "name": "schedule",
             "description": "Manage email schedules",
-            "usage": "/schedule [list|add|remove|test] [schedule_name]"
+            "usage": "/schedule [list|test|status]"
+        },
+        {
+            "name": "status",
+            "description": "Show plugin status",
+            "usage": "/status"
+        },
+        {
+            "name": "save",
+            "description": "Save briefing to file",
+            "usage": "/save [markdown|html]"
         }
     ],
     "config_schema": {
         "enabled": {
             "type": "boolean",
             "default": true,
-            "description": "Enable email scheduling and export"
+            "description": "Enable email briefing plugin"
+        },
+        "email": {
+            "type": "object",
+            "default": {
+                "enabled": false
+            },
+            "description": "Email configuration (credentials via environment variables)"
         },
         "scheduling": {
             "type": "object",
@@ -39,22 +51,26 @@
                 "enabled": true,
                 "briefings": {
                     "morning": {
+                        "enabled": true,
                         "time": "08:00",
                         "style": "comprehensive",
-                        "recipients": [],
-                        "enabled": true
-                    },
-                    "midday": {
-                        "time": "13:00",
-                        "style": "quick",
-                        "recipients": [],
-                        "enabled": false
+                        "sources": [
+                            "professional"
+                        ],
+                        "recipients": [
+                            "${DIGESTR_RECIPIENT_1}"
+                        ]
                     },
                     "evening": {
-                        "time": "20:00",
-                        "style": "analytical",
-                        "recipients": [],
-                        "enabled": false
+                        "enabled": false,
+                        "time": "18:00",
+                        "style": "quick",
+                        "sources": [
+                            "social"
+                        ],
+                        "recipients": [
+                            "${DIGESTR_RECIPIENT_1}"
+                        ]
                     }
                 }
             },
@@ -63,49 +79,29 @@
         "export": {
             "type": "object",
             "default": {
-                "formats": [
-                    "markdown"
-                ],
                 "save_directory": "~/Downloads/digestr-exports",
-                "auto_export": false,
-                "filename_template": "briefing-{style}-{date}-{time}"
+                "auto_export": false
             },
-            "description": "Export format and location settings"
-        },
-        "email": {
-            "type": "object",
-            "default": {
-                "enabled": false,
-                "provider": "gmail",
-                "smtp_server": "",
-                "smtp_port": 587,
-                "sender_email": "",
-                "sender_password": "",
-                "use_tls": true,
-                "subject_template": "📰 {style} Briefing - {date}"
-            },
-            "description": "Email configuration for scheduled briefings"
-        },
-        "content": {
-            "type": "object",
-            "default": {
-                "skip_if_no_new_articles": true,
-                "max_articles_per_briefing": 15,
-                "minimum_importance": 1.0,
-                "include_article_links": true
-            },
-            "description": "Content filtering and formatting options"
+            "description": "File export settings"
         }
     },
     "dependencies": [
-        "schedule",
         "smtplib",
         "email"
     ],
+    "environment_variables": [
+        "DIGESTR_SMTP_SERVER",
+        "DIGESTR_SMTP_PORT",
+        "DIGESTR_SENDER_EMAIL",
+        "DIGESTR_SENDER_PASSWORD",
+        "DIGESTR_RECIPIENT_1",
+        "DIGESTR_RECIPIENT_2"
+    ],
     "tags": [
         "email",
+        "briefing",
         "scheduling",
         "export",
-        "automation"
+        "production"
     ]
 }

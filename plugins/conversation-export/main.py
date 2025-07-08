@@ -1,24 +1,24 @@
+#!/usr/bin/env python3
 """
-Conversation Export Plugin for Digestr.ai
-Email Scheduler & Export functionality for news briefings
+Production Email Briefing Plugin for Digestr.ai
+Simplified and optimized for reliable email delivery
 """
 
-import sys
 import os
+import yaml
 import asyncio
 from datetime import datetime
 from pathlib import Path
+from typing import Dict, List, Optional, Any
+import logging
 
-# Add the src directory to the path
-src_path = os.path.join(os.path.dirname(__file__), '..', '..', '..', '..', '..', 'news-summarizer', 'src')
-if os.path.exists(src_path):
-    sys.path.insert(0, src_path)
-
+# Import Digestr core modules for efficient integration
 try:
     from digestr.core.plugin_base import DigestrPlugin
     from digestr.core.plugin_system import PluginHooks
     from digestr.core.database import DatabaseManager
     from digestr.llm_providers.ollama import OllamaProvider
+    from digestr.sources.source_manager import SourceManager
 except ImportError as e:
     print(f"Warning: Could not import Digestr modules: {e}")
     # Fallback classes for testing
@@ -26,226 +26,208 @@ except ImportError as e:
         def __init__(self, plugin_manager, config):
             self.plugin_manager = plugin_manager
             self.config = config
-        def register_hook(self, hook_name, callback):
-            pass
-        def register_command(self, command_name, callback, description=""):
-            pass
-        def get_config(self, key, default=None):
-            return self.config.get(key, default)
+        def register_hook(self, hook_name, callback): pass
+        def register_command(self, command_name, callback, description=""): pass
+        def get_config(self, key, default=None): return self.config.get(key, default)
     
     class PluginHooks:
         BRIEFING_GENERATED = "core.briefing_generated"
         INTERACTIVE_SESSION_END = "interactive.session_end"
 
-# Import plugin modules with absolute imports
-import os
-import importlib.util
+# Import plugin modules (simplified imports)
+from .sender import EmailSender
+from .exporters import MarkdownExporter, HtmlExporter
 
-def import_module_from_path(module_name, file_path):
-    """Import a module from a specific file path"""
-    spec = importlib.util.spec_from_file_location(module_name, file_path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-# Get the plugin directory
-plugin_dir = Path(__file__).parent
-
-# Import modules dynamically
-markdown_module = import_module_from_path("markdown_exporter", plugin_dir / "exporters" / "markdown.py")
-html_module = import_module_from_path("html_exporter", plugin_dir / "exporters" / "html.py") 
-email_module = import_module_from_path("email_sender", plugin_dir / "email" / "sender.py")
-scheduler_module = import_module_from_path("scheduler", plugin_dir / "schedulers" / "scheduler.py")
-
-MarkdownExporter = markdown_module.MarkdownExporter
-HtmlExporter = html_module.HtmlExporter
-EmailSender = email_module.EmailSender
-BriefingScheduler = scheduler_module.BriefingScheduler
+logger = logging.getLogger(__name__)
 
 
-class ConversationExportPlugin(DigestrPlugin):
-    """
-    Main plugin class for email scheduling and export functionality
-    """
+class EmailBriefingPlugin(DigestrPlugin):
+    """Production email briefing plugin with simplified commands"""
     
     def __init__(self, plugin_manager, config):
         super().__init__(plugin_manager, config)
-        print(f"ConversationExportPlugin initializing...")
+        
+        # Load environment variables for email config
+        self.email_config = self._load_email_config()
         
         # Initialize components
+        self.email_sender = EmailSender(self.email_config)
         self.markdown_exporter = MarkdownExporter(config)
         self.html_exporter = HtmlExporter(config)
-        self.email_sender = EmailSender(config)
-        self.scheduler = BriefingScheduler(config, self.email_sender)
         
         # Setup hooks and commands
         self.setup_hooks()
         self.setup_commands()
         
-        # Initialize scheduler if enabled
-        if self.get_config("scheduling", {}).get("enabled", False):
-            self.scheduler.initialize()
-        
-        print(f"ConversationExportPlugin initialized successfully")
+        logger.info("Email briefing plugin initialized")
+    
+    def _load_email_config(self) -> Dict[str, Any]:
+        """Load email configuration from environment variables"""
+        return {
+            'enabled': self.get_config('email', {}).get('enabled', False),
+            'smtp_server': os.getenv('DIGESTR_SMTP_SERVER', 'smtp.gmail.com'),
+            'smtp_port': int(os.getenv('DIGESTR_SMTP_PORT', '587')),
+            'sender_email': os.getenv('DIGESTR_SENDER_EMAIL', ''),
+            'sender_password': os.getenv('DIGESTR_SENDER_PASSWORD', ''),
+            'use_tls': os.getenv('DIGESTR_SMTP_TLS', 'true').lower() == 'true',
+            'subject_template': '📰 {style} Briefing - {date}'
+        }
     
     def setup_hooks(self):
-        """Register for relevant hooks"""
+        """Register plugin hooks"""
         self.register_hook(PluginHooks.BRIEFING_GENERATED, self.on_briefing_generated)
         self.register_hook(PluginHooks.INTERACTIVE_SESSION_END, self.on_session_end)
     
     def setup_commands(self):
-        """Register interactive commands"""
-        self.register_command("export", self.export_command, 
-                            "Export current session or briefing")
-        self.register_command("email", self.email_command,
-                            "Email briefing to recipients")
+        """Register plugin commands"""
+        self.register_command("email-brief", self.email_brief_command,
+                            "Send briefing via email: /email-brief [style] [sources] [recipient]")
         self.register_command("schedule", self.schedule_command,
-                            "Manage email schedules")
+                            "Manage email schedules: /schedule [list|test|status]")
+        self.register_command("status", self.status_command,
+                            "Show plugin status")
+        self.register_command("save", self.save_command,
+                            "Save briefing to file: /save [markdown|html]")
     
-    async def export_command(self, args, session):
-        """Handle /export command"""
+    async def email_brief_command(self, args: List[str], session=None) -> str:
+        """Send a briefing via email on demand"""
         try:
             # Parse arguments
-            export_format = args[0] if args else "markdown"
-            filename = args[1] if len(args) > 1 else None
+            style = args[0] if len(args) > 0 else "comprehensive"
+            sources = args[1].split(',') if len(args) > 1 else ["professional"] 
+            recipient = args[2] if len(args) > 2 else self.email_config.get('sender_email')
             
-            if export_format not in ["markdown", "html"]:
-                return "❌ Supported formats: markdown, html"
-            
-            # Get current session content
-            if hasattr(session, 'conversation_history') and session.conversation_history:
-                # Export conversation
-                content = self._format_conversation_for_export(session)
-                title = "Interactive Session"
-            else:
-                # Export recent briefing
-                content = await self._get_recent_briefing()
-                title = "Recent Briefing"
-                
-                if not content:
-                    return "❌ No briefing content found to export"
-            
-            # Export using appropriate exporter
-            if export_format == "markdown":
-                file_path = self.markdown_exporter.export(content, title, filename)
-            else:
-                file_path = self.html_exporter.export(content, title, filename)
-            
-            return f"✅ Exported to: {file_path}"
-            
-        except Exception as e:
-            return f"❌ Export failed: {str(e)}"
-    
-    async def email_command(self, args, session):
-        """Handle /email command"""
-        try:
-            # Check if email is configured
-            email_config = self.get_config("email", {})
-            if not email_config.get("enabled", False):
-                return "❌ Email not configured. Please setup email in plugin config."
-            
-            # Parse recipient
-            recipient = args[0] if args else email_config.get("sender_email")
             if not recipient:
-                return "❌ No recipient specified and no default configured"
+                return "❌ No recipient specified. Usage: /email-brief [style] [sources] [recipient]"
             
-            # Get content to email
-            if hasattr(session, 'conversation_history') and session.conversation_history:
-                content = self._format_conversation_for_export(session)
-                subject = f"Digestr Interactive Session - {datetime.now().strftime('%Y-%m-%d')}"
-            else:
-                content = await self._get_recent_briefing()
-                subject = f"Digestr Briefing - {datetime.now().strftime('%Y-%m-%d')}"
-                
-                if not content:
-                    return "❌ No content found to email"
+            # Validate style
+            valid_styles = ["comprehensive", "quick", "analytical"]
+            if style not in valid_styles:
+                return f"❌ Invalid style. Choose from: {', '.join(valid_styles)}"
+            
+            # Generate briefing
+            print(f"📧 Generating {style} briefing...")
+            briefing_content = await self._generate_briefing(style, sources)
+            
+            if not briefing_content or briefing_content.startswith("Error"):
+                return f"❌ Failed to generate briefing: {briefing_content}"
             
             # Send email
-            success = await self.email_sender.send_briefing(
+            success = self.email_sender.send_briefing(
                 recipients=[recipient],
-                subject=subject,
-                content=content
+                briefing_content=briefing_content,
+                briefing_style=style
             )
             
             if success:
-                return f"✅ Email sent to {recipient}"
+                return f"✅ {style.title()} briefing sent to {recipient}"
             else:
                 return f"❌ Failed to send email to {recipient}"
                 
         except Exception as e:
-            return f"❌ Email failed: {str(e)}"
+            logger.error(f"Error in email-brief command: {e}")
+            return f"❌ Error: {str(e)}"
     
-    async def schedule_command(self, args, session):
-        """Handle /schedule command"""
+    async def schedule_command(self, args: List[str], session=None) -> str:
+        """Manage email schedules"""
         try:
-            if not args:
-                return self._show_schedule_status()
-            
-            action = args[0].lower()
+            action = args[0] if args else "list"
             
             if action == "list":
-                return self._list_schedules()
+                return self._show_schedule_config()
             elif action == "test":
-                schedule_name = args[1] if len(args) > 1 else "morning"
-                return await self._test_schedule(schedule_name)
-            elif action == "enable":
-                schedule_name = args[1] if len(args) > 1 else None
-                if not schedule_name:
-                    return "❌ Please specify schedule name: morning, midday, evening"
-                return self._enable_schedule(schedule_name)
-            elif action == "disable":
-                schedule_name = args[1] if len(args) > 1 else None
-                if not schedule_name:
-                    return "❌ Please specify schedule name: morning, midday, evening"
-                return self._disable_schedule(schedule_name)
+                return await self._test_email_sending()
+            elif action == "status":
+                return self._show_email_status()
             else:
-                return "❌ Available actions: list, test, enable, disable"
+                return "❌ Available actions: list, test, status"
                 
         except Exception as e:
-            return f"❌ Schedule command failed: {str(e)}"
+            return f"❌ Schedule command error: {str(e)}"
     
-    def on_briefing_generated(self, briefing_content, articles, style="comprehensive"):
-        """Called when a briefing is generated"""
-        if self.get_config("export", {}).get("auto_export", False):
-            try:
-                # Auto-export briefing
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                filename = f"auto_briefing_{style}_{timestamp}"
-                self.markdown_exporter.export(briefing_content, f"{style.title()} Briefing", filename)
-                print(f"📄 Auto-exported briefing: {filename}")
-            except Exception as e:
-                print(f"❌ Auto-export failed: {e}")
-    
-    def on_session_end(self, session):
-        """Called when interactive session ends"""
-        print("📋 Conversation export plugin: Session ended")
-    
-    def _format_conversation_for_export(self, session):
-        """Format conversation history for export"""
-        if not hasattr(session, 'conversation_history') or not session.conversation_history:
-            return "No conversation history available."
+    async def status_command(self, args: List[str], session=None) -> str:
+        """Show overall plugin status"""
+        status_parts = []
         
-        content = f"# Interactive Session - {datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n"
+        # Email configuration status
+        email_status = self.email_sender.get_status()
+        status_parts.append("📧 **Email Configuration:**")
+        status_parts.append(f"  • Enabled: {'✅' if email_status['enabled'] else '❌'}")
+        status_parts.append(f"  • SMTP Server: {email_status.get('smtp_server', 'Not set')}")
+        status_parts.append(f"  • Sender Email: {email_status.get('sender_email', 'Not set')}")
+        status_parts.append(f"  • Configuration Valid: {'✅' if email_status['config_valid'] else '❌'}")
         
-        for i, exchange in enumerate(session.conversation_history, 1):
-            content += f"## Question {i}\n"
-            content += f"**User:** {exchange['question']}\n\n"
-            content += f"**Assistant:** {exchange['response']}\n\n"
-            content += "---\n\n"
+        # Scheduling configuration
+        scheduling_config = self.get_config('scheduling', {}).get('briefings', {})
+        status_parts.append("\n📅 **Scheduled Briefings:**")
         
-        return content
+        if not scheduling_config:
+            status_parts.append("  • No briefings configured")
+        else:
+            for name, config in scheduling_config.items():
+                enabled = "✅" if config.get('enabled', False) else "⚪"
+                recipients = len(config.get('recipients', []))
+                status_parts.append(f"  • {enabled} {name}: {config.get('time')} ({config.get('style')}) → {recipients} recipients")
+        
+        return "\n".join(status_parts)
     
-    async def _get_recent_briefing(self):
-        """Get the most recent briefing content"""
+    async def save_command(self, args: List[str], session=None) -> str:
+        """Save current briefing to file"""
         try:
-            # Get recent articles and generate a briefing
-            db = DatabaseManager()
-            articles = db.get_recent_articles(hours=24, limit=15, unprocessed_only=False)
+            file_format = args[0] if args else "markdown"
+            
+            if file_format not in ["markdown", "html"]:
+                return "❌ Supported formats: markdown, html"
+            
+            # Generate current briefing
+            briefing_content = await self._generate_briefing("comprehensive", ["professional"])
+            
+            if not briefing_content:
+                return "❌ No briefing content to save"
+            
+            # Save using appropriate exporter
+            if file_format == "markdown":
+                file_path = self.markdown_exporter.export(briefing_content, "Current Briefing")
+            else:
+                file_path = self.html_exporter.export(briefing_content, "Current Briefing")
+            
+            return f"✅ Briefing saved to: {file_path}"
+            
+        except Exception as e:
+            return f"❌ Save failed: {str(e)}"
+    
+    async def _generate_briefing(self, style: str, sources: List[str]) -> str:
+        """Generate briefing using Digestr core functionality"""
+        try:
+            # Import config manager here to avoid circular imports
+            from digestr.config.manager import get_enhanced_config_manager
+            
+            # Initialize components
+            config_manager = get_enhanced_config_manager()
+            db_manager = DatabaseManager()
+            source_manager = SourceManager(config_manager, db_manager)
+            
+            # Determine source types
+            if "professional" in sources:
+                fetch_sources = ["rss"]
+                if "reddit" in source_manager.get_available_sources():
+                    fetch_sources.append("reddit")
+            elif "social" in sources:
+                fetch_sources = ["reddit_personal"] if "reddit_personal" in source_manager.get_available_sources() else []
+            else:
+                # Use specific sources
+                fetch_sources = [s for s in sources if s in source_manager.get_available_sources()]
+            
+            if not fetch_sources:
+                return "Error: No valid sources available"
+            
+            # Get recent articles from database (don't re-fetch)
+            articles = db_manager.get_recent_articles(hours=24, limit=20, unprocessed_only=False)
             
             if not articles:
-                return None
+                return "No recent articles found for briefing"
             
-            # Convert to dict format for LLM
+            # Convert articles to dict format for LLM
             article_dicts = []
             for article in articles:
                 article_dicts.append({
@@ -259,81 +241,115 @@ class ConversationExportPlugin(DigestrPlugin):
                     'importance_score': article.importance_score
                 })
             
-            # Generate briefing
-            llm = OllamaProvider()
-            briefing = await llm.generate_briefing(article_dicts, briefing_type="comprehensive")
+            # Generate briefing using Ollama provider
+            config = config_manager.get_config()
+            llm_provider = OllamaProvider(config.llm.ollama_url, config.llm.models)
+            
+            briefing = await llm_provider.generate_briefing(
+                article_dicts,
+                briefing_type=style
+            )
+            
             return briefing
             
         except Exception as e:
-            print(f"Error getting recent briefing: {e}")
-            return None
+            logger.error(f"Error generating briefing: {e}")
+            return f"Error generating briefing: {str(e)}"
     
-    def _show_schedule_status(self):
+    def _show_schedule_config(self) -> str:
         """Show current schedule configuration"""
-        scheduling_config = self.get_config("scheduling", {})
-        if not scheduling_config.get("enabled", False):
+        scheduling_config = self.get_config('scheduling', {})
+        
+        if not scheduling_config.get('enabled', False):
             return "📅 Scheduling is disabled"
         
-        briefings = scheduling_config.get("briefings", {})
-        status = "📅 **Current Schedules:**\n\n"
+        briefings = scheduling_config.get('briefings', {})
+        if not briefings:
+            return "📅 No briefings configured"
+        
+        result = ["📅 **Configured Briefings:**"]
         
         for name, config in briefings.items():
-            enabled = "✅" if config.get("enabled", False) else "⚪"
-            recipients = ", ".join(config.get("recipients", []))
-            status += f"{enabled} **{name.title()}**: {config.get('time')} ({config.get('style')}) → {recipients}\n"
-        
-        return status
-    
-    def _list_schedules(self):
-        """List all configured schedules"""
-        return self._show_schedule_status()
-    
-    async def _test_schedule(self, schedule_name):
-        """Test a specific schedule"""
-        scheduling_config = self.get_config("scheduling", {})
-        briefings = scheduling_config.get("briefings", {})
-        
-        if schedule_name not in briefings:
-            return f"❌ Schedule '{schedule_name}' not found"
-        
-        schedule_config = briefings[schedule_name]
-        recipients = schedule_config.get("recipients", [])
-        
-        if not recipients:
-            return f"❌ No recipients configured for {schedule_name}"
-        
-        try:
-            # Generate test briefing
-            content = await self._get_recent_briefing()
-            if not content:
-                content = f"Test briefing for {schedule_name} schedule - {datetime.now()}"
+            enabled = "✅" if config.get('enabled', False) else "⚪"
+            recipients = config.get('recipients', [])
             
-            # Send test email
-            success = await self.email_sender.send_briefing(
-                recipients=recipients,
-                subject=f"TEST: {schedule_name.title()} Briefing",
-                content=content
-            )
+            # Load actual recipient emails from environment
+            actual_recipients = []
+            for recipient in recipients:
+                if recipient.startswith('${') and recipient.endswith('}'):
+                    env_var = recipient[2:-1]  # Remove ${ and }
+                    actual_email = os.getenv(env_var, recipient)
+                    actual_recipients.append(actual_email)
+                else:
+                    actual_recipients.append(recipient)
             
-            if success:
-                return f"✅ Test email sent to {', '.join(recipients)}"
-            else:
-                return f"❌ Failed to send test email"
-                
-        except Exception as e:
-            return f"❌ Test failed: {str(e)}"
+            result.append(f"  {enabled} **{name.title()}**: {config.get('time')} ({config.get('style')})")
+            result.append(f"      Sources: {', '.join(config.get('sources', []))}")
+            result.append(f"      Recipients: {', '.join(actual_recipients)}")
+        
+        return "\n".join(result)
     
-    def _enable_schedule(self, schedule_name):
-        """Enable a specific schedule"""
-        # This would update the config file
-        return f"✅ Schedule '{schedule_name}' enabled (config update needed)"
+    async def _test_email_sending(self) -> str:
+        """Test email sending functionality"""
+        if not self.email_config.get('enabled'):
+            return "❌ Email is disabled in configuration"
+        
+        # Test SMTP connection
+        if not self.email_sender.test_connection():
+            return "❌ SMTP connection failed. Check your email configuration."
+        
+        # Try to send a test email
+        test_recipient = self.email_config.get('sender_email')
+        if not test_recipient:
+            return "❌ No test recipient available"
+        
+        test_content = f"Test email from Digestr.ai plugin\nSent at: {datetime.now()}"
+        
+        success = self.email_sender.send_email(
+            recipients=[test_recipient],
+            subject="Digestr.ai Test Email",
+            body=test_content
+        )
+        
+        if success:
+            return f"✅ Test email sent successfully to {test_recipient}"
+        else:
+            return f"❌ Failed to send test email to {test_recipient}"
     
-    def _disable_schedule(self, schedule_name):
-        """Disable a specific schedule"""
-        # This would update the config file
-        return f"⚪ Schedule '{schedule_name}' disabled (config update needed)"
+    def _show_email_status(self) -> str:
+        """Show email configuration status"""
+        status = self.email_sender.get_status()
+        
+        result = ["📧 **Email Status:**"]
+        result.append(f"  • Enabled: {'✅' if status['enabled'] else '❌'}")
+        result.append(f"  • SMTP Server: {status.get('smtp_server', 'Not configured')}")
+        result.append(f"  • SMTP Port: {status.get('smtp_port', 'Not configured')}")
+        result.append(f"  • Sender Email: {status.get('sender_email', 'Not configured')}")
+        result.append(f"  • Configuration Valid: {'✅' if status['config_valid'] else '❌'}")
+        
+        # Environment variable status
+        result.append("\n🔐 **Environment Variables:**")
+        required_vars = ['DIGESTR_SMTP_SERVER', 'DIGESTR_SENDER_EMAIL', 'DIGESTR_SENDER_PASSWORD']
+        
+        for var in required_vars:
+            value = os.getenv(var)
+            status_icon = "✅" if value else "❌"
+            display_value = "***" if value and 'password' in var.lower() else (value or "Not set")
+            result.append(f"  • {var}: {status_icon} {display_value}")
+        
+        return "\n".join(result)
+    
+    # Hook handlers
+    def on_briefing_generated(self, briefing_content, articles, style="comprehensive"):
+        """Called when a briefing is generated"""
+        # Could implement auto-emailing here if desired
+        pass
+    
+    def on_session_end(self, session):
+        """Called when interactive session ends"""
+        logger.debug("Email briefing plugin: Session ended")
 
 
 def create_plugin(plugin_manager, config):
     """Plugin factory function (required)"""
-    return ConversationExportPlugin(plugin_manager, config)
+    return EmailBriefingPlugin(plugin_manager, config)

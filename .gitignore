@@ -207,6 +207,7 @@ config.yaml
 **/config.yaml
 !config.yaml.template
 !**/config.yaml.template
+plugins/*/config.yaml
 
 # Email automation scripts with credentials
 automated_briefing_direct.py
