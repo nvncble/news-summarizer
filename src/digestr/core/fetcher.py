@@ -23,19 +23,14 @@ class FeedManager:
     """Manages RSS feed configurations and categories"""
     
     def __init__(self):
-        # Comprehensive RSS feeds organized by category
+        # Updated RSS feeds with working URLs only
         self.feeds = {
             "tech": [
                 "https://feeds.arstechnica.com/arstechnica/index",
-                "https://feeds.feedburner.com/techcrunch/startups",
-                "https://rss.nytimes.com/services/xml/rss/nyt/Health.xml",
                 "https://www.theverge.com/rss/index.xml",
                 "https://techcrunch.com/feed/",
                 "https://www.wired.com/feed/rss",
-                "https://feeds.feedburner.com/venturebeat/SZYF",
                 "https://www.engadget.com/rss.xml",
-                "https://rss.nytimes.com/services/xml/rss/nyt/Science.xml",
-                "https://rss.slashdot.org/Slashdot/slashdotMain",
                 "https://rss.nytimes.com/services/xml/rss/nyt/Technology.xml",
                 "https://moxie.foxnews.com/google-publisher/tech.xml",
                 "https://moxie.foxnews.com/google-publisher/health.xml",
@@ -44,6 +39,7 @@ class FeedManager:
                 "https://feeds.bbci.co.uk/news/world/rss.xml",
                 "https://moxie.foxnews.com/google-publisher/world.xml",
                 "https://feeds.npr.org/1001/rss.xml",
+                "https://www.theguardian.com/world/rss",
                 "https://rss.nytimes.com/services/xml/rss/nyt/World.xml",
                 "https://feeds.skynews.com/feeds/rss/world.xml",
                 "https://rss.dw.com/xml/rss-en-world",
@@ -51,9 +47,7 @@ class FeedManager:
             "sports": [
                 "https://www.espn.com/espn/rss/news",
                 "https://sports.yahoo.com/rss/",
-                "https://www.reutersagency.com/feed/?best-topics=sports&post_type=best",
                 "https://www.cbssports.com/rss/headlines",
-                "https://bleacherreport.com/articles/feed",
             ],
             "cutting_edge": [
                 "https://rss.arxiv.org/rss/cs.AI",  # AI papers
@@ -62,22 +56,18 @@ class FeedManager:
                 "https://rss.arxiv.org/rss/cs.CV",  # Computer Vision
                 "https://feeds.nature.com/nature/rss/current",
                 "https://rss.nytimes.com/services/xml/rss/nyt/Science.xml",
-                "https://feeds.aps.org/rss/recent/physics.rss",
-                "https://feeds.feedburner.com/oreilly/radar",
-                "https://distill.pub/rss.xml",
+                # Removed broken feeds: oreilly/radar, distill.pub
             ],
             "business": [
                 "https://feeds.bloomberg.com/markets/news.rss",
                 "https://rss.nytimes.com/services/xml/rss/nyt/Business.xml",
-                "https://www.reutersagency.com/en/reutersbest/reuters-best-rss-feeds/",
                 "https://feeds.feedburner.com/entrepreneur/latest",
             ],
             "security": [
                 "https://feeds.feedburner.com/TheHackersNews",
                 "https://krebsonsecurity.com/feed/",
-                "https://feeds.feedburner.com/securityweek",
                 "https://threatpost.com/feed/",
-                "https://feeds.feedburner.com/darkreading/blog",
+                # Removed broken feeds: securityweek, darkreading
             ]
         }
     

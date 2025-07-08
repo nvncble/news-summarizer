@@ -323,7 +323,7 @@ class DatabaseManager:
             conn.close()
 
     def update_feed_stats(self, feed_url: str, category: str, article_count: int,
-                          response_time: float, success: bool = True):
+                      response_time: float, success: bool = True):
         """Update feed statistics"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
@@ -338,6 +338,7 @@ class DatabaseManager:
 
             if existing:
                 # Update existing record with moving averages
+                old_success_rate, old_avg_time = existing  # Fix: Properly unpack tuple
                 old_success_rate = old_success_rate or 0.0
                 old_avg_time = old_avg_time or 0.0
                 new_success_rate = (old_success_rate * 0.9) + \
@@ -356,7 +357,7 @@ class DatabaseManager:
                     (feed_url, category, last_fetch, article_count, success_rate, avg_response_time)
                     VALUES (?, ?, ?, ?, ?, ?)
                 ''', (feed_url, category, datetime.now().isoformat(), article_count,
-                      1.0 if success else 0.0, response_time))
+                    1.0 if success else 0.0, response_time))
 
             conn.commit()
 

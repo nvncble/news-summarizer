@@ -1,0 +1,11 @@
+aiohttp
+asyncio
+dataclasses
+datetime
+feedparser
+hashlib
+logging
+pathlib
+pyyaml
+requests
+sqlite3

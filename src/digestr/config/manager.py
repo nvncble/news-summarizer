@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Digestr Configuration Management
-Handles feature flags, user preferences, and environment configuration
+Updated Digestr Configuration Management
+Handles all new features including personal Reddit and briefing structure
 """
 
 import os
@@ -15,22 +15,133 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
+class SourceConfig:
+    """Base source configuration"""
+    enabled: bool = False
+
+
+@dataclass
+class RSSSourceConfig(SourceConfig):
+    """RSS source configuration"""
+    enabled: bool = True
+
+
+@dataclass
+class RedditSourceConfig(SourceConfig):
+    """Reddit news source configuration"""
+    enabled: bool = True
+    client_id: str = ""
+    client_secret: str = ""
+    user_agent: str = "Digestr.ai/2.1"
+    subreddits: List[Dict] = None
+    quality_control: Dict = None
+    
+    def __post_init__(self):
+        if self.subreddits is None:
+            self.subreddits = []
+        if self.quality_control is None:
+            self.quality_control = {
+                "min_comment_karma": 50,
+                "min_account_age_days": 30,
+                "bot_detection": True
+            }
+
+
+@dataclass 
+class RedditPersonalConfig(SourceConfig):
+    """Personal Reddit source configuration"""
+    enabled: bool = False
+    client_id: str = ""
+    client_secret: str = ""
+    refresh_token: str = ""
+    user_agent: str = "Digestr.ai/2.1"
+    filtering: Dict = None
+    content_types: List[str] = None
+    cache_duration_minutes: int = 45
+    
+    def __post_init__(self):
+        if self.filtering is None:
+            self.filtering = {
+                "time_window_hours": 24,
+                "min_upvotes": 10,
+                "max_posts": 25,
+                "exclude_nsfw": True,
+                "exclude_subreddits": [],
+                "include_only": []
+            }
+        if self.content_types is None:
+            self.content_types = ["hot", "new"]
+
+
+@dataclass
+class BriefingConfig:
+    """Briefing structure and style configuration"""
+    structure: Dict = None
+    styles: Dict = None
+    content: Dict = None
+    
+    def __post_init__(self):
+        if self.structure is None:
+            self.structure = {
+                "default_order": ["professional", "social"],
+                "professional_sources": ["rss", "reddit"],
+                "social_sources": ["reddit_personal"]
+            }
+        if self.styles is None:
+            self.styles = {
+                "professional": {
+                    "tone": "analytical and informative",
+                    "focus": "implications and significance",
+                    "greeting": "Here's your professional briefing"
+                },
+                "social": {
+                    "tone": "casual and conversational",
+                    "focus": "interesting highlights from your personal feeds", 
+                    "greeting": "And here's what's happening in your corner of Reddit"
+                }
+            }
+        if self.content is None:
+            self.content = {
+                "skip_if_no_new_articles": True,
+                "max_articles_per_briefing": 50,
+                "minimum_importance": 1.0,
+                "include_article_links": True
+            }
+
+
+@dataclass
+class SourcesConfig:
+    """All sources configuration"""
+    rss: RSSSourceConfig = None
+    reddit: RedditSourceConfig = None  
+    reddit_personal: RedditPersonalConfig = None
+    
+    def __post_init__(self):
+        if self.rss is None:
+            self.rss = RSSSourceConfig()
+        if self.reddit is None:
+            self.reddit = RedditSourceConfig()
+        if self.reddit_personal is None:
+            self.reddit_personal = RedditPersonalConfig()
+
+
+@dataclass
 class FeatureFlags:
-    """Feature flag configuration"""
-    # Stable features (enabled by default in v2.0.0)
+    """Feature flag configuration with new features"""
+    # Stable features (enabled by default)
     enhanced_summarization: bool = True
     concurrent_processing: bool = True
     importance_scoring: bool = True
     
     # New features (opt-in initially)
-    interactive_mode: bool = False
+    interactive_mode: bool = True
     multi_model_support: bool = False
     community_sharing: bool = False
     
     # Experimental features (disabled by default)
     web_search_context: bool = False
     conversation_export: bool = False
-    sentiment_analysis: bool = False
+    sentiment_analysis: bool = True
     
     # Provider-specific features
     openai_support: bool = False
@@ -39,15 +150,11 @@ class FeatureFlags:
 
 @dataclass
 class LLMConfig:
-    """LLM provider configuration"""
+    """Enhanced LLM provider configuration"""
     default_provider: str = "ollama"
     ollama_url: str = "http://localhost:11434"
     fallback_enabled: bool = True
-    
-    # Model mappings
     models: Dict[str, str] = None
-    
-    # API configurations (when providers are enabled)
     openai_api_key: Optional[str] = None
     anthropic_api_key: Optional[str] = None
     
@@ -56,11 +163,12 @@ class LLMConfig:
             self.models = {
                 "default": "llama3.1:8b",
                 "technical": "deepseek-coder:6.7b",
-                "conversational": "llama3.1:8b",
+                "conversational": "llama3.1:8b", 
                 "academic": "qwen2.5:14b",
                 "fast": "llama3.1:8b",
                 "detailed": "llama3.1:70b"
             }
+
 
 @dataclass
 class DatabaseConfig:
@@ -68,8 +176,6 @@ class DatabaseConfig:
     path: str = "rss_feeds.db"
     cleanup_days: int = 30
     backup_enabled: bool = True
-    
-    # Performance settings
     connection_timeout: int = 30
     max_connections: int = 10
 
@@ -81,27 +187,47 @@ class FetchConfig:
     per_host_limit: int = 10
     request_timeout: int = 30
     retry_attempts: int = 3
-    
-    # Rate limiting
     delay_between_batches: float = 0.5
     respect_robots_txt: bool = True
-    
-    # Custom headers
-    user_agent: str = "Digestr.ai/2.0 (+https://github.com/nvncble/digestr)"
+    user_agent: str = "Digestr.ai/2.1 (+https://github.com/nvncble/digestr)"
+
+
+@dataclass
+class InteractiveConfig:
+    """Interactive mode configuration"""
+    max_context_length: int = 4000
+    conversation_history_limit: int = 10
+    enable_plugins: bool = True
+
+
+@dataclass
+class PreferencesConfig:
+    """User preferences"""
+    default_category: Optional[str] = None
+    default_hours: int = 24
+    default_briefing_style: str = "comprehensive"
+
+
+@dataclass
+class PluginConfig:
+    """Plugin system configuration"""
+    enabled: bool = True
+    auto_load: bool = True
+    directory: str = "~/.config/digestr/plugins"
 
 
 @dataclass
 class DigestrConfig:
-    """Main configuration container"""
+    """Main configuration container with all new features"""
     features: FeatureFlags = None
     llm: LLMConfig = None
     database: DatabaseConfig = None
     fetching: FetchConfig = None
-    
-    # User preferences
-    default_category: Optional[str] = None
-    default_hours: int = 24
-    default_briefing_style: str = "comprehensive"
+    sources: SourcesConfig = None
+    briefing: BriefingConfig = None
+    interactive: InteractiveConfig = None
+    preferences: PreferencesConfig = None
+    plugins: PluginConfig = None
     
     def __post_init__(self):
         if self.features is None:
@@ -112,10 +238,20 @@ class DigestrConfig:
             self.database = DatabaseConfig()
         if self.fetching is None:
             self.fetching = FetchConfig()
+        if self.sources is None:
+            self.sources = SourcesConfig()
+        if self.briefing is None:
+            self.briefing = BriefingConfig()
+        if self.interactive is None:
+            self.interactive = InteractiveConfig()
+        if self.preferences is None:
+            self.preferences = PreferencesConfig()
+        if self.plugins is None:
+            self.plugins = PluginConfig()
 
 
-class ConfigurationManager:
-    """Manages configuration loading, validation, and feature flag operations"""
+class EnhancedConfigurationManager:
+    """Enhanced configuration manager with support for all new features"""
     
     def __init__(self, config_dir: Optional[str] = None):
         self.config_dir = Path(config_dir) if config_dir else self._get_default_config_dir()
@@ -180,13 +316,16 @@ class ConfigurationManager:
                 base[key] = value
     
     def _apply_env_overrides(self, config_data: Dict):
-        """Apply environment variable overrides"""
+        """Apply environment variable overrides for new fields"""
         env_mappings = {
             'DIGESTR_OLLAMA_URL': ['llm', 'ollama_url'],
             'DIGESTR_DB_PATH': ['database', 'path'],
-            'DIGESTR_DEFAULT_CATEGORY': ['default_category'],
+            'DIGESTR_DEFAULT_CATEGORY': ['preferences', 'default_category'],
             'DIGESTR_OPENAI_API_KEY': ['llm', 'openai_api_key'],
             'DIGESTR_ANTHROPIC_API_KEY': ['llm', 'anthropic_api_key'],
+            'REDDIT_CLIENT_ID': ['sources', 'reddit', 'client_id'],
+            'REDDIT_CLIENT_SECRET': ['sources', 'reddit', 'client_secret'],
+            'REDDIT_REFRESH_TOKEN': ['sources', 'reddit_personal', 'refresh_token'],
         }
         
         for env_var, config_path in env_mappings.items():
@@ -204,33 +343,60 @@ class ConfigurationManager:
     
     def _create_config_from_dict(self, data: Dict) -> DigestrConfig:
         """Create DigestrConfig object from dictionary data"""
-        # Extract nested configurations
+        # Handle sources configuration
+        sources_data = data.get('sources', {})
+        sources_config = SourcesConfig()
+        
+        # RSS config
+        if 'rss' in sources_data:
+            rss_data = sources_data['rss']
+            sources_config.rss = RSSSourceConfig(**{k: v for k, v in rss_data.items() if hasattr(RSSSourceConfig, k)})
+        
+        # Reddit config  
+        if 'reddit' in sources_data:
+            reddit_data = sources_data['reddit']
+            sources_config.reddit = RedditSourceConfig(**{k: v for k, v in reddit_data.items() if hasattr(RedditSourceConfig, k)})
+        
+        # Personal Reddit config
+        if 'reddit_personal' in sources_data:
+            reddit_personal_data = sources_data['reddit_personal'] 
+            sources_config.reddit_personal = RedditPersonalConfig(**{k: v for k, v in reddit_personal_data.items() if hasattr(RedditPersonalConfig, k)})
+        
+        # Handle other configs
         features_data = data.get('features', {})
+        features = FeatureFlags(**{k: v for k, v in features_data.items() if hasattr(FeatureFlags, k)})
+        
         llm_data = data.get('llm', {})
+        llm = LLMConfig(**{k: v for k, v in llm_data.items() if hasattr(LLMConfig, k)})
+        
         database_data = data.get('database', {})
+        database = DatabaseConfig(**{k: v for k, v in database_data.items() if hasattr(DatabaseConfig, k)})
+        
         fetching_data = data.get('fetching', {})
+        fetching = FetchConfig(**{k: v for k, v in fetching_data.items() if hasattr(FetchConfig, k)})
         
-        # Create nested configuration objects
-        features = FeatureFlags(**{k: v for k, v in features_data.items() 
-                                 if hasattr(FeatureFlags, k)})
-        llm = LLMConfig(**{k: v for k, v in llm_data.items() 
-                         if hasattr(LLMConfig, k)})
-        database = DatabaseConfig(**{k: v for k, v in database_data.items() 
-                                   if hasattr(DatabaseConfig, k)})
-        fetching = FetchConfig(**{k: v for k, v in fetching_data.items() 
-                               if hasattr(FetchConfig, k)})
+        briefing_data = data.get('briefing', {})
+        briefing = BriefingConfig(**{k: v for k, v in briefing_data.items() if hasattr(BriefingConfig, k)})
         
-        # Create main config with remaining top-level settings
-        main_config_data = {k: v for k, v in data.items() 
-                           if k not in ['features', 'llm', 'database', 'fetching']}
+        interactive_data = data.get('interactive', {})
+        interactive = InteractiveConfig(**{k: v for k, v in interactive_data.items() if hasattr(InteractiveConfig, k)})
+        
+        preferences_data = data.get('preferences', {})
+        preferences = PreferencesConfig(**{k: v for k, v in preferences_data.items() if hasattr(PreferencesConfig, k)})
+        
+        plugins_data = data.get('plugins', {})
+        plugins = PluginConfig(**{k: v for k, v in plugins_data.items() if hasattr(PluginConfig, k)})
         
         return DigestrConfig(
             features=features,
             llm=llm,
             database=database,
             fetching=fetching,
-            **{k: v for k, v in main_config_data.items() 
-               if hasattr(DigestrConfig, k)}
+            sources=sources_config,
+            briefing=briefing,
+            interactive=interactive,
+            preferences=preferences,
+            plugins=plugins
         )
     
     def _validate_config(self):
@@ -239,6 +405,16 @@ class ConfigurationManager:
             return
         
         validation_errors = []
+        
+        # Validate Reddit configurations
+        reddit_config = self._config.sources.reddit
+        if reddit_config.enabled and not (reddit_config.client_id and reddit_config.client_secret):
+            validation_errors.append("Reddit enabled but missing client_id/client_secret")
+        
+        reddit_personal_config = self._config.sources.reddit_personal
+        if reddit_personal_config.enabled:
+            if not (reddit_personal_config.client_id and reddit_personal_config.client_secret and reddit_personal_config.refresh_token):
+                validation_errors.append("Personal Reddit enabled but missing credentials")
         
         # Validate LLM provider configuration
         if self._config.features.openai_support and not self._config.llm.openai_api_key:
@@ -259,6 +435,10 @@ class ConfigurationManager:
         for error in validation_errors:
             logger.warning(f"Configuration validation: {error}")
     
+    def get_config(self) -> DigestrConfig:
+        """Get current configuration"""
+        return self._config
+    
     def save_config(self):
         """Save current configuration to user config file"""
         if not self._config:
@@ -272,154 +452,44 @@ class ConfigurationManager:
         except Exception as e:
             logger.error(f"Error saving configuration: {e}")
     
-    def get_config(self) -> DigestrConfig:
-        """Get current configuration"""
-        return self._config
-    
     def is_feature_enabled(self, feature_name: str) -> bool:
         """Check if a specific feature is enabled"""
         return getattr(self._config.features, feature_name, False)
     
-    def enable_feature(self, feature_name: str) -> bool:
-        """Enable a specific feature"""
-        if hasattr(self._config.features, feature_name):
-            setattr(self._config.features, feature_name, True)
-            self.save_config()
-            logger.info(f"Enabled feature: {feature_name}")
-            return True
-        return False
+    def get_source_config(self, source_name: str):
+        """Get configuration for a specific source"""
+        return getattr(self._config.sources, source_name, None)
     
-    def disable_feature(self, feature_name: str) -> bool:
-        """Disable a specific feature"""
-        if hasattr(self._config.features, feature_name):
-            setattr(self._config.features, feature_name, False)
-            self.save_config()
-            logger.info(f"Disabled feature: {feature_name}")
-            return True
-        return False
+    def get_briefing_config(self) -> BriefingConfig:
+        """Get briefing configuration"""
+        return self._config.briefing
     
-    def list_features(self) -> Dict[str, bool]:
-        """List all features and their current status"""
-        return asdict(self._config.features)
-    
-    def list_experimental_features(self) -> Dict[str, bool]:
-        """List only experimental features"""
-        experimental = [
-            'web_search_context', 'conversation_export', 'sentiment_analysis'
-        ]
-        return {name: getattr(self._config.features, name) 
-                for name in experimental}
-    
-    def enable_experimental_mode(self):
-        """Enable all experimental features"""
-        experimental_features = self.list_experimental_features()
-        for feature_name in experimental_features:
-            setattr(self._config.features, feature_name, True)
-        self.save_config()
-        logger.info("Enabled experimental mode")
-    
-    def get_llm_config(self) -> LLMConfig:
-        """Get LLM configuration"""
-        return self._config.llm
-    
-    def get_database_config(self) -> DatabaseConfig:
-        """Get database configuration"""
-        return self._config.database
-    
-    def get_fetch_config(self) -> FetchConfig:
-        """Get fetching configuration"""
-        return self._config.fetching
-    
-    def update_config(self, **kwargs):
-        """Update configuration values"""
-        for key, value in kwargs.items():
-            if hasattr(self._config, key):
-                setattr(self._config, key, value)
-        self.save_config()
-    
-    def reset_to_defaults(self):
-        """Reset configuration to defaults"""
-        self._config = DigestrConfig()
-        self.save_config()
-        logger.info("Configuration reset to defaults")
-    
-    def export_config(self, file_path: str):
-        """Export current configuration to a file"""
+    def create_example_config(self, file_path: Optional[str] = None):
+        """Create an example configuration file"""
+        if file_path is None:
+            file_path = self.config_dir / "config.example.yaml"
+        
+        example_config = DigestrConfig()
+        config_dict = asdict(example_config)
+        
         try:
-            config_dict = asdict(self._config)
             with open(file_path, 'w') as f:
                 yaml.dump(config_dict, f, default_flow_style=False, indent=2)
-            logger.info(f"Configuration exported to {file_path}")
+            logger.info(f"Example configuration created at {file_path}")
         except Exception as e:
-            logger.error(f"Error exporting configuration: {e}")
-    
-    def import_config(self, file_path: str):
-        """Import configuration from a file"""
-        try:
-            with open(file_path, 'r') as f:
-                imported_data = yaml.safe_load(f)
-            
-            self._config = self._create_config_from_dict(imported_data)
-            self._validate_config()
-            self.save_config()
-            logger.info(f"Configuration imported from {file_path}")
-        except Exception as e:
-            logger.error(f"Error importing configuration: {e}")
-    
-    def get_status_summary(self) -> Dict[str, Any]:
-        """Get a comprehensive status summary"""
-        if not self._config:
-            return {"status": "error", "message": "No configuration loaded"}
-        
-        enabled_features = [name for name, enabled in self.list_features().items() if enabled]
-        experimental_features = [name for name, enabled in self.list_experimental_features().items() if enabled]
-        
-        return {
-            "config_file": str(self.config_file),
-            "project_config": str(self.project_config_file) if self.project_config_file.exists() else None,
-            "features": {
-                "total_enabled": len(enabled_features),
-                "enabled": enabled_features,
-                "experimental_enabled": experimental_features
-            },
-            "llm": {
-                "default_provider": self._config.llm.default_provider,
-                "ollama_url": self._config.llm.ollama_url,
-                "providers_available": self._get_available_providers()
-            },
-            "database": {
-                "path": self._config.database.path,
-                "exists": Path(self._config.database.path).exists()
-            }
-        }
-    
-    def _get_available_providers(self) -> List[str]:
-        """Get list of available LLM providers based on configuration"""
-        providers = ["ollama"]  # Always available
-        
-        if self._config.features.openai_support and self._config.llm.openai_api_key:
-            providers.append("openai")
-        
-        if self._config.features.anthropic_support and self._config.llm.anthropic_api_key:
-            providers.append("anthropic")
-        
-        return providers
+            logger.error(f"Error creating example config: {e}")
 
 
-# Convenience function for getting global configuration
-_global_config_manager: Optional[ConfigurationManager] = None
+# Global configuration manager
+_global_enhanced_config_manager: Optional[EnhancedConfigurationManager] = None
 
-def get_config_manager() -> ConfigurationManager:
-    """Get global configuration manager instance"""
-    global _global_config_manager
-    if _global_config_manager is None:
-        _global_config_manager = ConfigurationManager()
-    return _global_config_manager
+def get_enhanced_config_manager() -> EnhancedConfigurationManager:
+    """Get global enhanced configuration manager instance"""
+    global _global_enhanced_config_manager
+    if _global_enhanced_config_manager is None:
+        _global_enhanced_config_manager = EnhancedConfigurationManager()
+    return _global_enhanced_config_manager
 
-def get_config() -> DigestrConfig:
-    """Get current configuration"""
-    return get_config_manager().get_config()
-
-def is_feature_enabled(feature_name: str) -> bool:
-    """Check if a feature is enabled"""
-    return get_config_manager().is_feature_enabled(feature_name)
+def get_enhanced_config() -> DigestrConfig:
+    """Get current enhanced configuration"""
+    return get_enhanced_config_manager().get_config()

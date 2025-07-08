@@ -16,7 +16,7 @@ from digestr.core.fetcher import FeedManager
 from digestr.llm_providers.ollama import OllamaProvider
 from digestr.core.plugin_manager import PluginManager
 from digestr.core.plugin_manager import PluginManager
-from digestr.config.manager import get_config_manager
+from digestr.config.manager import get_enhanced_config_manager as get_config_manager
 from digestr.sources.source_manager import SourceManager
 from digestr.core.strategic_prioritizer import enhance_article_prioritization
 
@@ -220,7 +220,184 @@ def _build_content_sections(self, tiered_articles: dict[str, list[dict]]) -> str
     return "\n".join(sections)
 
 
+async def handle_enhanced_briefing(args):
+    """Handle enhanced briefing with professional/social options"""
+    print(f"🐛 DEBUG: handle_enhanced_briefing called")
+    print(f"🐛 DEBUG: args = {args}")
+    # Determine briefing type
+    professional_only = getattr(args, 'professional', False)
+    social_only = getattr(args, 'social', False)
+    
 
+    print(f"🐛 DEBUG: professional_only = {professional_only}")
+    print(f"🐛 DEBUG: social_only = {social_only}")
+
+
+    if professional_only and social_only:
+        print("❌ Cannot specify both --professional and --social")
+        return
+    
+    if social_only:
+        print("🎯 Generating social briefing from your personal Reddit feed...")
+        
+        # Test direct personal Reddit access
+        import praw
+        import os
+        
+        try:
+            reddit = praw.Reddit(
+                client_id=os.getenv('REDDIT_CLIENT_ID'),
+                client_secret=os.getenv('REDDIT_CLIENT_SECRET'),
+                refresh_token=os.getenv('REDDIT_REFRESH_TOKEN'),
+                user_agent='Digestr.ai Personal Feed'
+            )
+            
+            # Get personal feed posts
+            home_posts = list(reddit.front.hot(limit=20))
+            print(f"📱 Found {len(home_posts)} posts from your personal feed")
+            
+            # Convert to article format for LLM
+            article_dicts = []
+            for post in home_posts:
+                article_dicts.append({
+                    'title': post.title,
+                    'summary': post.selftext or f"Post from r/{post.subreddit.display_name}",
+                    'content': post.selftext or f"Shared in r/{post.subreddit.display_name} with {post.score} upvotes",
+                    'source': f"r/{post.subreddit.display_name}",
+                    'category': 'social',
+                    'score': post.score,
+                    'comments': post.num_comments,
+                    'source_type': 'social'
+                })
+            
+            # Create casual social prompt
+            prompt = create_social_briefing_prompt(article_dicts)
+            
+            # Generate briefing
+            llm = OllamaProvider()
+            briefing = await llm.generate_summary(prompt)
+            
+            # Display social briefing
+            print("\n" + "="*80)
+            print("🎯 YOUR PERSONAL SOCIAL BRIEFING")
+            print("="*80)
+            print(briefing)
+            print("\n" + "="*80)
+            
+        except Exception as e:
+            print(f"❌ Error generating social briefing: {e}")
+            print("💡 Make sure your Reddit credentials are set correctly")
+            
+    else:
+        # Combined briefing (both professional and social)
+        print("📊 Generating comprehensive briefing with both professional and social content...")
+        
+        # Professional content (existing logic)
+        print("📰 Fetching professional news...")
+        db = DatabaseManager()
+        articles = db.get_recent_articles(hours=24, limit=25, unprocessed_only=True)
+        
+        if articles:
+            print(f"📈 Found {len(articles)} professional articles")
+            
+            article_dicts = []
+            for article in articles:
+                article_dicts.append({
+                    'title': article.title,
+                    'summary': article.summary,
+                    'content': article.content,
+                    'source': article.source,
+                    'category': article.category,
+                    'importance_score': article.importance_score,
+                    'source_type': 'professional'
+                })
+            
+            # Generate professional section
+            llm = OllamaProvider()
+            professional_briefing = await llm.generate_briefing(article_dicts, briefing_type=args.style)
+            
+            print("\n" + "="*80)
+            print("📋 YOUR COMPREHENSIVE DIGESTR.AI BRIEFING")
+            print("="*80)
+            print("## 📰 Professional News")
+            print(professional_briefing)
+            
+            # Mark as processed
+            article_urls = [article.url for article in articles]
+            db.mark_articles_processed(article_urls)
+        
+        # Social content (your personal Reddit)
+        print("\n🎯 Adding personal social content...")
+        try:
+            import praw
+            import os
+            
+            reddit = praw.Reddit(
+                client_id=os.getenv('REDDIT_CLIENT_ID'),
+                client_secret=os.getenv('REDDIT_CLIENT_SECRET'),
+                refresh_token=os.getenv('REDDIT_REFRESH_TOKEN'),
+                user_agent='Digestr.ai Personal Feed'
+            )
+            
+            home_posts = list(reddit.front.hot(limit=15))
+            print(f"📱 Found {len(home_posts)} posts from personal feed")
+            
+            if home_posts:
+                # Create social prompt and generate
+                prompt = create_social_briefing_prompt([{
+                    'title': post.title,
+                    'source': f"r/{post.subreddit.display_name}",
+                    'score': post.score,
+                    'comments': post.num_comments,
+                    'summary': post.selftext or f"Post from r/{post.subreddit.display_name}"
+                } for post in home_posts])
+                
+                social_briefing = await llm.generate_summary(prompt)
+                
+                print("\n## 🎯 Personal Social Highlights")
+                print(social_briefing)
+            
+        except Exception as e:
+            print(f"⚠️ Could not fetch personal social content: {e}")
+        
+        print("\n" + "="*80)
+
+
+def create_social_briefing_prompt(articles):
+    """Create casual prompt for social content"""
+    from datetime import datetime
+    current_time = datetime.now().strftime("%A, %B %d, %Y at %I:%M %p")
+    
+    # Group by subreddit
+    subreddits = {}
+    for article in articles:
+        sub = article['source']
+        if sub not in subreddits:
+            subreddits[sub] = []
+        subreddits[sub].append(article)
+    
+    content = ""
+    for sub, posts in subreddits.items():
+        content += f"\n**{sub}:**\n"
+        for post in posts[:3]:  # Top 3 per subreddit
+            score = post.get('score', 0)
+            comments = post.get('comments', 0)
+            content += f"• {post['title']} ({score} ⬆️, {comments} 💬)\n"
+            if post.get('summary'):
+                content += f"  {post['summary'][:150]}...\n"
+    
+    prompt = f"""Hey! Here's what's happening in your corner of Reddit today ({current_time}).
+
+Your Personal Reddit Feed:
+{content}
+
+Give me a casual, friendly rundown of the interesting stuff from my personal Reddit feed. Keep it conversational and focus on what makes each post worth my attention. Don't just list things - tell me why they caught your eye and what makes them interesting or entertaining.
+
+Use a friendly, casual tone like you're telling a friend about cool stuff you found online. Group related posts together and highlight the most engaging or surprising content.
+
+Start with a warm greeting and give me the social media highlights:"""
+
+    return prompt
 
 
 
@@ -504,7 +681,12 @@ async def main():
     briefing_parser.add_argument('--sources', nargs='+',
                                 choices=['rss', 'reddit'],
                                 help='Include specific sources in briefing')
-    
+    briefing_parser.add_argument('--professional', action='store_true',
+                            help='Professional briefing only (news sources)')
+    briefing_parser.add_argument('--social', action='store_true',
+                                help='Social briefing only (personal feeds)')
+    briefing_parser.add_argument('--categories', nargs='+',
+                                help='Filter by specific categories')
 
     sources_parser = subparsers.add_parser('sources', help='Manage content sources')
     sources_subparsers = sources_parser.add_subparsers(dest='sources_command', help='Source commands')
@@ -562,14 +744,7 @@ async def main():
 
 
     elif args.command == 'briefing':
-        # If specific sources requested, fetch from those first
-        if hasattr(args, 'sources') and args.sources:
-            print(f"📡 Fetching from specified sources: {', '.join(args.sources)}")
-            await enhanced_fetch_with_sources(args.sources)
-        
-        # Get articles for briefing (INCLUDING Reddit with sentiment)
-        db = DatabaseManager()
-        articles = db.get_recent_articles(hours=24, limit=50, unprocessed_only=True)
+        await handle_enhanced_briefing(args)
         
         # Filter by source type if specified
         if hasattr(args, 'sources') and args.sources:
@@ -645,7 +820,39 @@ async def main():
         
         # Interactive mode handling (existing code)
         if hasattr(args, 'interactive') and args.interactive:
-            print("\n🎯 Starting enhanced interactive session...")
+            print("\n🎯 Starting interactive session...")
+            
+            # Get articles for interactive session
+            db = DatabaseManager()
+            articles = db.get_recent_articles(hours=24, limit=50, unprocessed_only=False)
+            
+            if not articles:
+                print("📰 No articles available for interactive session.")
+                return
+            
+            # Convert to dict format
+            article_dicts = []
+            for article in articles:
+                article_dicts.append({
+                    'title': article.title,
+                    'summary': article.summary,
+                    'content': article.content,
+                    'url': article.url,
+                    'category': article.category,
+                    'source': article.source,
+                    'published_date': article.published_date,
+                    'importance_score': article.importance_score
+                })
+            
+            # Initialize plugin manager
+            config_manager = get_config_manager()
+            plugin_manager = PluginManager(config_manager)
+            plugin_manager.initialize()
+            
+            # Start interactive session
+            llm = OllamaProvider()
+            session = InteractiveSession(article_dicts, llm, plugin_manager)
+            await session.start()
 
 
 

@@ -234,3 +234,23 @@ __pycache__/
 .env.local
 secrets.yaml
 credentials.yaml
+
+# Session artifacts
+paste.txt
+reddit_setup.py
+reddit_manual_setup.py
+debug_*.py
+test_*.py
+
+# User configuration with credentials
+~/.config/digestr/config.yaml
+config.yaml
+.env.local
+
+# Reddit credentials (already covered but ensure)
+reddit_credentials.json
+**/reddit_*.json
+
+# Debug logs
+debug.log
+test_output/
