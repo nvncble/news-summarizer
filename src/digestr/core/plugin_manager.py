@@ -255,7 +255,8 @@ class PluginManager:
             # Construct module path
             entry_file = manifest.plugin_dir / manifest.entry_point
             module_name = f"digestr_plugin_{manifest.name.replace('-', '_')}"
-            
+            print(f"🔍 DEBUG: Importing plugin {manifest.name} from {entry_file}")
+
             # Load the module
             spec = importlib.util.spec_from_file_location(module_name, entry_file)
             if not spec or not spec.loader:
@@ -266,6 +267,9 @@ class PluginManager:
             sys.modules[module_name] = module
             spec.loader.exec_module(module)
             
+            print(f"🔍 DEBUG: Successfully imported module {module_name}")
+
+
             # Get the plugin factory function
             if hasattr(module, 'create_plugin'):
                 plugin_instance = module.create_plugin(self, config)
@@ -281,6 +285,9 @@ class PluginManager:
                 
         except Exception as e:
             logger.error(f"Error importing plugin {manifest.name}: {e}")
+            print(f"🔍 DEBUG: General error details: {e}")
+
+
             return None
     
     def unload_plugin(self, plugin_name: str) -> bool:
@@ -383,14 +390,20 @@ class PluginManager:
     
     def register_command(self, command_name: str, callback: callable, description: str = "", plugin_name: str = None):
         """Register a new interactive command"""
+        print(f"🔍 DEBUG: register_command called with command_name='{command_name}', plugin_name='{plugin_name}'")
+
         if command_name in self.commands:
             logger.warning(f"Command {command_name} already registered, overriding")
-        
+            print(f"🔍 DEBUG: ⚠️  COMMAND CONFLICT: '{command_name}' was registered by '{existing_plugin}', now being overwritten by '{plugin_name}'")
+
         self.commands[command_name] = {
             'callback': callback,
             'description': description,
             'plugin': plugin_name
         }
+
+        print(f"🔍 DEBUG: Successfully stored command '{command_name}' in self.commands")
+        print(f"🔍 DEBUG: self.commands.keys() after registration: {list(self.commands.keys())}")
         logger.debug(f"Registered command /{command_name} for plugin {plugin_name}")
     
     async def execute_hook(self, hook_name: str, *args, **kwargs):

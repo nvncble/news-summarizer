@@ -255,3 +255,6 @@ reddit_credentials.json
 # Debug logs
 debug.log
 test_output/
+midday_briefing.bat
+morning_briefing.bat
+evening_briefing.bat

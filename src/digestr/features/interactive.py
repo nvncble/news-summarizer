@@ -26,11 +26,7 @@ class InteractiveSession:
         self.session_context = self._build_session_context()
         self.max_context_length = 4000  # Token limit for context
         self.plugin_manager = plugin_manager
-        if self.plugin_manager:
-            self.plugin_manager.execute_hook(
-                PluginHooks.INTERACTIVE_SESSION_START, 
-                session=self
-            )
+        
 
     async def _handle_special_command(self, command):
         # Check if it's a plugin command first
@@ -86,6 +82,12 @@ class InteractiveSession:
 
     async def start(self):
         """Start the interactive session"""
+
+        if self.plugin_manager:
+            await self.plugin_manager.execute_hook(
+                PluginHooks.INTERACTIVE_SESSION_START, 
+                session=self
+            )
         print("🎯 Interactive Session Started")
         print("📚 I have context from your recent news articles")
         print("💬 Ask me anything about the news, or type 'exit' to quit")
@@ -112,6 +114,8 @@ class InteractiveSession:
 
                 # Check for special commands
                 if user_input.lower().startswith('/'):
+                    print(f"🔍 DEBUG: Processing special command: '{user_input}'")
+
                     await self._handle_special_command(user_input)
                     continue
 
@@ -226,7 +230,20 @@ class InteractiveSession:
 
     async def _handle_special_command(self, command: str):
         """Handle special slash commands"""
+        print(f"🔍 DEBUG: _handle_special_command called with: '{command}'")
+
         command = command.lower().strip()
+
+
+        if self.plugin_manager:
+            print(f"🔍 DEBUG: self.plugin_manager.commands = {self.plugin_manager.commands}")
+
+            print(f"🔍 DEBUG: Available plugin commands: {list(self.plugin_manager.commands.keys())}")
+            result = await self.plugin_manager.handle_command(
+                command, session_context=self
+            )
+            if result:  # Plugin handled it
+                return
         
         if command == '/articles':
             self._list_articles()

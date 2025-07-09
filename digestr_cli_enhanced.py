@@ -2,13 +2,24 @@
 """
 Digestr CLI - Enhanced with briefing functionality
 """
-
+from dotenv import load_dotenv
 import sys
 import os
+load_dotenv()
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 import sqlite3
 import asyncio
 import argparse
+
+from pathlib import Path
+
+project_root = Path(__file__).parent
+src_path = project_root / "src"
+if src_path.exists():
+    sys.path.insert(0, str(src_path))
+
+
 from datetime import datetime
 from digestr.features.interactive import InteractiveSession
 from digestr.core.database import DatabaseManager

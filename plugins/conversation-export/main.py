@@ -4,14 +4,21 @@ Production Email Briefing Plugin for Digestr.ai
 Simplified and optimized for reliable email delivery
 """
 
+import sys
 import os
-import yaml
-import asyncio
-from datetime import datetime
-from pathlib import Path
-from typing import Dict, List, Optional, Any
-import logging
 
+# Dummy classes for testing
+class EmailSender:
+    def __init__(self, config): 
+        self.config = config
+    def get_status(self): 
+        return {'enabled': False, 'smtp_server': 'test', 'sender_email': 'test', 'config_valid': False}
+
+class MarkdownExporter:
+    def __init__(self, config): pass
+
+class HtmlExporter:
+    def __init__(self, config): pass
 # Import Digestr core modules for efficient integration
 try:
     from digestr.core.plugin_base import DigestrPlugin

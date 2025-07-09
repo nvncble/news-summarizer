@@ -56,10 +56,11 @@ class RedditPersonalSource:
             return
         
         try:
-            # Get credentials from config
-            client_id = self.config.get('client_id', '')
-            client_secret = self.config.get('client_secret', '')
-            refresh_token = self.config.get('refresh_token', '')
+            # Get credentials from environment variables first, then fall back to config
+            import os
+            client_id = os.getenv('REDDIT_CLIENT_ID') or self.config.get('client_id', '')
+            client_secret = os.getenv('REDDIT_CLIENT_SECRET') or self.config.get('client_secret', '')
+            refresh_token = os.getenv('REDDIT_REFRESH_TOKEN') or self.config.get('refresh_token', '')
             user_agent = self.config.get('user_agent', 'Digestr.ai/2.1')
             
             if not all([client_id, client_secret, refresh_token]):
