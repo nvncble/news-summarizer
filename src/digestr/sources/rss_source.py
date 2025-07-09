@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
 RSS Source Implementation - Bridge to existing RSS system
+FIXED: Return actual articles instead of counts
 """
 
 import asyncio
@@ -23,19 +24,44 @@ class RSSSource:
     async def fetch_articles(self):
         """Fetch RSS articles using existing RSS fetcher"""
         try:
-            # Use existing RSS fetching system
-            results, _ = await self.fetcher.fetch_all_feeds()
+            # STEP 1: Fetch new articles (this saves to database)
+            category_counts, _ = await self.fetcher.fetch_all_feeds()
             
-            # Convert to list format expected by source manager
-            all_articles = []
-            for source_name, source_articles in results.items():
-                all_articles.extend(source_articles)
+            total_new = sum(category_counts.values())
+            logger.info(f"RSS fetcher saved {total_new} new articles to database")
             
-            logger.info(f"RSS source fetched {len(all_articles)} articles")
-            return all_articles
+            # STEP 2: Get the actual articles from database 
+            # (this is what was missing - we need to retrieve the articles, not just counts)
+            articles = self.db_manager.get_recent_articles(
+                hours=24, 
+                limit=100, 
+                unprocessed_only=False  # Get all recent articles, not just unprocessed
+            )
+            
+            # STEP 3: Convert Article objects to dicts for source manager
+            article_dicts = []
+            for article in articles:
+                # Only include RSS articles (exclude Reddit ones)
+                if not article.title.startswith('[Reddit]'):
+                    article_dicts.append({
+                        'title': article.title,
+                        'summary': article.summary,
+                        'content': article.content,
+                        'url': article.url,
+                        'category': article.category,
+                        'source': article.source,
+                        'published_date': article.published_date,
+                        'importance_score': article.importance_score,
+                        'source_type': 'professional'
+                    })
+            
+            logger.info(f"RSS source returning {len(article_dicts)} articles")
+            return article_dicts
             
         except Exception as e:
             logger.error(f"Error fetching RSS articles: {e}")
+            import traceback
+            traceback.print_exc()
             return []
     
     async def fetch_content(self):

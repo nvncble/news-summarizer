@@ -307,14 +307,40 @@ async def handle_enhanced_briefing(args):
         # Professional content
         print("📰 Fetching professional news...")
         db = DatabaseManager()
-        articles = db.get_recent_articles(hours=24, limit=25, unprocessed_only=False)
+        articles = db.get_recent_articles(hours=24, limit=55, unprocessed_only=False)
 
         if articles:
             print(f"📈 Found {len(articles)} professional articles")
             
+            # Balance categories for better diversity
+            from collections import defaultdict
+            categorized = defaultdict(list)
+            for article in articles:
+                categorized[article.category].append(article)
+            
+            # Take max 10 per category, prioritizing world news and important stories
+            balanced_articles = []
+            priority_categories = ['world_news', 'security', 'business']
+            other_categories = [cat for cat in categorized.keys() if cat not in priority_categories]
+            
+            # Add priority categories first (up to 12 each)
+            for category in priority_categories:
+                if category in categorized:
+                    cat_articles = sorted(categorized[category], key=lambda x: x.importance_score, reverse=True)
+                    balanced_articles.extend(cat_articles[:12])
+            
+            # Add other categories (up to 8 each)
+            for category in other_categories:
+                cat_articles = sorted(categorized[category], key=lambda x: x.importance_score, reverse=True)
+                balanced_articles.extend(cat_articles[:8])
+            
+            # Use the balanced set, limited to 45 total articles
+            articles_to_use = balanced_articles[:45]
+            print(f"📊 Balanced to {len(articles_to_use)} articles across {len(categorized)} categories")
+            
             # Convert to article format for LLM
             article_dicts = []
-            for article in articles:
+            for article in articles_to_use:
                 clean_title = article.title.replace('[Reddit] ', '') if article.title.startswith('[Reddit] ') else article.title
                 
                 article_dicts.append({
@@ -340,16 +366,19 @@ async def handle_enhanced_briefing(args):
 
             Here are {len(article_dicts)} recent news articles to analyze:
 
-            {chr(10).join([f"• {article['title'][:80]}... (Source: {article.get('source', 'Unknown')}, Category: {article.get('category', 'Unknown')})" for article in article_dicts[:15]])}
+            {chr(10).join([f"• {article['title'][:80]}... (Source: {article.get('source', 'Unknown')}, Category: {article.get('category', 'Unknown')})" for article in article_dicts[:20]])}
 
             Please provide a {args.style} news briefing:
-            - Start with a natural greeting
-            - Highlight the most important developments  
-            - Group related stories together
-            - Explain why these stories matter
+            - Start with a natural greeting acknowledging the time of day
+            - PRIORITIZE world news, politics, security, and major international events first
+            - Then cover business, technology, and cutting-edge developments
+            - Group related stories together and show connections
+            - Explain the significance and broader implications
             - Keep it conversational and engaging
+            - Include specific details and examples from the articles
+            - End with insights about what these developments mean going forward
 
-            Begin your briefing:"""
+            Begin your comprehensive briefing:"""
 
             print(f"🔍 DEBUG: Prompt length: {len(simple_prompt)} characters")
 
