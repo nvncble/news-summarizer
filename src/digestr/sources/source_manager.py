@@ -16,6 +16,9 @@ from digestr.sources.reddit_source import RedditSource
 # Import new personal sources
 from digestr.sources.reddit_personal_source import RedditPersonalSource
 from digestr.sources.social_post_structure import SocialFeed
+from digestr.sources.trends24_source import Trends24Source
+from digestr.analysis.trend_correlation_engine import TrendCorrelationEngine
+from digestr.analysis.trend_structures import GeographicConfig, CrossSourceTrendAnalysis
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +34,11 @@ class SourceManager:
         self.db_manager = db_manager
         self.config = config_manager.get_config()
         
+        self.trend_sources = {}
+        self.trend_engine = None
+        self.last_trend_analysis = None
+
+
         # Source instances
         self.sources = {}
         self.professional_sources = []
@@ -45,6 +53,23 @@ class SourceManager:
         logger.info("Initializing enhanced source manager...")
         
         source_configs = self.config.sources
+
+
+        trending_config = self.config.trending
+        if trending_config.enabled:
+            geo_config = GeographicConfig(
+                country=trending_config.geographic.get('country', 'United States'),
+                state=trending_config.geographic.get('state'),
+                city=trending_config.geographic.get('city'),
+                include_national=trending_config.geographic.get('include_national', True)
+            )
+            
+            if trending_config.sources.get('trends24', {}).get('enabled', False):
+                self.trend_sources['trends24'] = Trends24Source(geo_config)
+            
+            # Initialize trend correlation engine
+            self.trend_engine = TrendCorrelationEngine(geo_config, self.db_manager)
+
 
         # Initialize professional sources
         if hasattr(source_configs, 'rss') and source_configs.rss.enabled:
@@ -301,6 +326,48 @@ class SourceManager:
         
         logger.info("All source caches cleared")
 
+    async def fetch_with_trend_analysis(self) -> Dict[str, Any]:
+        """Fetch all sources and perform trend analysis"""
+        
+        # Fetch regular content
+        results = await self.fetch_all_sources()
+        
+        # Fetch trend data if trend analysis is enabled
+        if self.trend_engine and self.trend_sources:
+            try:
+                # Fetch trending topics
+                all_trends = []
+                for source_name, source in self.trend_sources.items():
+                    trends = await source.fetch_trending_topics()
+                    all_trends.extend(trends)
+                
+                if all_trends:
+                    # Prepare content for correlation
+                    rss_articles = []
+                    reddit_posts = []
+                    
+                    for source_type, content in results.get('professional', {}).items():
+                        if isinstance(content, list):
+                            if source_type == 'rss':
+                                rss_articles.extend(content)
+                            elif source_type == 'reddit':
+                                reddit_posts.extend(content)
+                    
+                    # Perform trend correlation analysis
+                    trend_analysis = await self.trend_engine.find_cross_source_correlations(
+                        all_trends, rss_articles, reddit_posts
+                    )
+                    
+                    self.last_trend_analysis = trend_analysis
+                    results['trend_analysis'] = trend_analysis
+                    
+                    logger.info(f"Trend analysis complete: {trend_analysis.total_trends} trends analyzed")
+            
+            except Exception as e:
+                logger.error(f"Error in trend analysis: {e}")
+                results['trend_analysis'] = CrossSourceTrendAnalysis()
+        
+        return results
 
 # Utility functions for integration
 

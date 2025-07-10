@@ -7,7 +7,7 @@ Handles all SQLite operations, schema management, and statistics
 import sqlite3
 import hashlib
 from datetime import datetime, timedelta
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass
 import logging
 
@@ -117,18 +117,63 @@ class DatabaseManager:
             )
         ''')
 
-        # Performance indexes
-        cursor.execute(
-            'CREATE INDEX IF NOT EXISTS idx_articles_category ON articles(category)')
-        cursor.execute(
-            'CREATE INDEX IF NOT EXISTS idx_articles_date ON articles(fetched_date)')
-        cursor.execute(
-            'CREATE INDEX IF NOT EXISTS idx_articles_processed ON articles(processed)')
-        cursor.execute(
-            'CREATE INDEX IF NOT EXISTS idx_articles_importance ON articles(importance_score)')
 
-        conn.commit()
-        conn.close()
+
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS trending_topics (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                keyword TEXT NOT NULL,
+                aliases TEXT,
+                category TEXT,
+                source TEXT,
+                region TEXT,
+                velocity REAL DEFAULT 0.0,
+                reach INTEGER DEFAULT 0,
+                momentum TEXT DEFAULT 'emerging',
+                first_detected TEXT,
+                peak_time TEXT,
+                last_updated TEXT,
+                correlation_score REAL DEFAULT 0.0,
+                geographic_relevance REAL DEFAULT 0.0,
+                is_active BOOLEAN DEFAULT TRUE
+            )
+        ''')
+        
+        # Add trend correlations table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS trend_correlations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                trend_keyword TEXT NOT NULL,
+                content_id TEXT NOT NULL,
+                content_source TEXT NOT NULL,
+                correlation_strength REAL NOT NULL,
+                correlation_type TEXT,
+                match_types TEXT,
+                detected_at TEXT,
+                is_cross_source BOOLEAN DEFAULT FALSE
+            )
+        ''')
+        
+        # Add trend source coverage table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS trend_source_coverage (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                trend_keyword TEXT NOT NULL,
+                source_name TEXT NOT NULL,
+                mention_count INTEGER DEFAULT 1,
+                total_strength REAL DEFAULT 0.0,
+                first_mention TEXT,
+                last_mention TEXT,
+                UNIQUE(trend_keyword, source_name)
+            )
+        ''')
+        
+        # Add indexes
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_trending_topics_keyword ON trending_topics(keyword)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_trending_topics_active ON trending_topics(is_active)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_trend_correlations_keyword ON trend_correlations(trend_keyword)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_trend_correlations_content ON trend_correlations(content_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_trend_coverage_keyword ON trend_source_coverage(trend_keyword)')
         logger.info(f"Database initialized: {self.db_path}")
 
     def hash_url(self, url: str) -> str:

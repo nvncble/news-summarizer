@@ -1,47 +1,110 @@
-content:
-  include_article_links: true
-  max_articles_per_briefing: 15
-  minimum_importance: 1.0
-  skip_if_no_new_articles: true
-devspace:
-  email_simulation: true
-  mock_smtp: true
-  test_mode: true
-email:
-  enabled: false
-  provider: gmail
-  sender_email: your-email@gmail.com
-  sender_password: your-app-password
-  smtp_port: 587
-  smtp_server: smtp.gmail.com
-  subject_template: "\xF0\u0178\u201C\xB0 {style} Briefing - {date}"
-  use_tls: true
-enabled: true
-export:
-  auto_export: false
-  filename_template: briefing-{style}-{date}-{time}
-  formats:
-  - markdown
-  - html
-  save_directory: ~/Downloads/digestr-exports
-scheduling:
-  briefings:
-    evening:
-      enabled: false
-      recipients:
-      - your-email@example.com
-      style: analytical
-      time: '20:00'
-    midday:
-      enabled: false
-      recipients:
-      - your-email@example.com
-      style: quick
-      time: '13:00'
-    morning:
-      enabled: true
-      recipients:
-      - your-email@example.com
-      style: comprehensive
-      time: 08:00
+# Trend Analysis Configuration
+trending:
   enabled: true
+  
+  geographic:
+    country: "United States"
+    state: null  # e.g., "California", "New York", "Texas"
+    city: null   # e.g., "San Francisco", "New York City", "Austin"
+    include_national: true
+  
+  correlation:
+    min_threshold: 0.4
+    strong_threshold: 0.7
+    semantic_matching: true
+    entity_extraction: true
+    geographic_boost: true
+    cache_duration_minutes: 30
+  
+  sources:
+    trends24:
+      enabled: true
+      regions: ["united-states"]
+      cache_duration: 300  # 5 minutes
+      request_delay: 2     # seconds between requests
+    
+    # Future trend sources (for when APIs are added)
+    twitter:
+      enabled: false
+      # Will be configured when Twitter API is added
+    
+    youtube:
+      enabled: false
+      # Will be configured when YouTube API is added
+  
+  briefing_integration:
+    show_trend_alerts: true
+    integrate_with_articles: true
+    dedicated_trends_section: true
+    max_trends_in_alert: 3
+    show_correlation_strength: true
+
+# Enhanced Source Configuration
+sources:
+  # Existing sources...
+  rss:
+    enabled: true
+  
+  reddit:
+    enabled: true
+    client_id: "${REDDIT_CLIENT_ID}"
+    client_secret: "${REDDIT_CLIENT_SECRET}"
+    user_agent: "Digestr.ai/2.1"
+    subreddits:
+      - name: "technology"
+        min_upvotes: 200
+        category: "tech"
+        sentiment_analysis: true
+      - name: "worldnews"
+        min_upvotes: 500
+        category: "world_news"
+        sentiment_analysis: true
+    quality_control:
+      min_comment_karma: 50
+      bot_detection: true
+  
+  reddit_personal:
+    enabled: false
+    client_id: "${REDDIT_CLIENT_ID}"
+    client_secret: "${REDDIT_CLIENT_SECRET}"
+    refresh_token: "${REDDIT_REFRESH_TOKEN}"
+    user_agent: "Digestr.ai/2.1"
+    cache_duration_minutes: 45
+
+# Enhanced Briefing Configuration
+briefing:
+  structure:
+    default_order: ["professional", "social", "trends"]
+    professional_sources: ["rss", "reddit"]
+    social_sources: ["reddit_personal"]
+    trend_sources: ["trends24"]
+  
+  styles:
+    professional:
+      tone: "analytical and informative"
+      focus: "implications and significance with trend context"
+      greeting: "Here's your professional briefing with trend analysis"
+    
+    social:
+      tone: "casual and conversational"
+      focus: "interesting highlights from your personal feeds with trending context"
+      greeting: "And here's what's happening in your corner of the internet"
+    
+    trends:
+      tone: "analytical but accessible"
+      focus: "cross-source trend analysis and emerging signals"
+      greeting: "Here's your comprehensive trend analysis"
+  
+  content:
+    skip_if_no_new_articles: true
+    max_articles_per_briefing: 50
+    minimum_importance: 1.0
+    include_article_links: true
+    trend_boost_factor: 1.5  # How much to boost trending articles
+
+# Database Configuration Updates
+database:
+  path: "rss_feeds.db"
+  cleanup_days: 30
+  backup_enabled: true
+  trend_retention_days: 7  # How long to keep trend correlation data

@@ -272,7 +272,53 @@ class StrategicPrioritizer:
             'average_scores': avg_scores
         }
 
+    def prioritize_with_trends(self, articles: List[Dict], trend_analysis) -> Dict[str, List[Dict]]:
+        """Enhanced prioritization with trend correlation data"""
+        
+        if not articles:
+            return {'top': [], 'mid': [], 'quick': []}
+        
+        # Apply trend boost to articles
+        articles_with_trend_boost = self._apply_trend_boost(articles, trend_analysis)
+        
+        # Use existing prioritization with enhanced scores
+        return self.prioritize_articles(articles_with_trend_boost)
+    
+    def _apply_trend_boost(self, articles: List[Dict], trend_analysis) -> List[Dict]:
+        """Apply boost to articles that correlate with trends"""
+        
+        if not trend_analysis:
+            return articles
+        
+        enhanced_articles = []
+        all_correlations = (
+            trend_analysis.triple_coverage + 
+            trend_analysis.double_coverage + 
+            trend_analysis.geographic_trends
+        )
+        
+        for article in articles:
+            enhanced_article = article.copy()
+            trend_boost = 0.0
+            
+            # Check for trend correlations
+            for correlation_data in all_correlations:
+                for match in correlation_data.get('rss_matches', []):
+                    if match['article'].get('url') == article.get('url'):
+                        # Boost based on correlation strength and source coverage
+                        base_boost = match['score'] * 2.0
+                        source_multiplier = len(correlation_data['sources']) * 0.5
+                        trend_boost += base_boost * source_multiplier
+            
+            # Apply trend boost to importance score
+            enhanced_article['importance_score'] = article.get('importance_score', 0) + trend_boost
+            enhanced_article['trend_boost_applied'] = trend_boost
+            
+            enhanced_articles.append(enhanced_article)
+        
+        return enhanced_articles
 
+        
 # Integration function for the main CLI
 def enhance_article_prioritization(articles: List[Dict]) -> Dict[str, List[Dict]]:
     """

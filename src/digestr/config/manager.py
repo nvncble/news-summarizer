@@ -216,6 +216,47 @@ class PluginConfig:
     directory: str = "~/.config/digestr/plugins"
 
 
+
+@dataclass
+class TrendingConfig:
+    """Trending analysis configuration"""
+    enabled: bool = True
+    geographic: Dict = None
+    correlation: Dict = None
+    sources: Dict = None
+    briefing_integration: Dict = None
+    
+    def __post_init__(self):
+        if self.geographic is None:
+            self.geographic = {
+                'country': 'United States',
+                'state': None,
+                'city': None,
+                'include_national': True
+            }
+        if self.correlation is None:
+            self.correlation = {
+                'min_threshold': 0.4,
+                'strong_threshold': 0.7,
+                'semantic_matching': True,
+                'entity_extraction': True,
+                'geographic_boost': True
+            }
+        if self.sources is None:
+            self.sources = {
+                'trends24': {'enabled': True, 'regions': ['united-states']},
+                'twitter': {'enabled': False},
+                'youtube': {'enabled': False}
+            }
+        if self.briefing_integration is None:
+            self.briefing_integration = {
+                'show_trend_alerts': True,
+                'integrate_with_articles': True,
+                'dedicated_trends_section': True
+            }
+
+
+
 @dataclass
 class DigestrConfig:
     """Main configuration container with all new features"""
@@ -228,8 +269,11 @@ class DigestrConfig:
     interactive: InteractiveConfig = None
     preferences: PreferencesConfig = None
     plugins: PluginConfig = None
+    trending: TrendingConfig = None
     
     def __post_init__(self):
+        if self.trending is None:
+            self.trending = TrendingConfig()
         if self.features is None:
             self.features = FeatureFlags()
         if self.llm is None:

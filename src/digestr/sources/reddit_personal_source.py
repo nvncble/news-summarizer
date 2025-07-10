@@ -34,8 +34,12 @@ class RedditPersonalSource:
     def __init__(self, config_manager, db_manager):
         self.config_manager = config_manager
         self.db_manager = db_manager
-        self.config = config_manager.get_config().sources.get('reddit_personal', {})
-        
+        sources_config = config_manager.get_config().sources
+        reddit_config = getattr(sources_config, 'reddit_personal', None)
+        if reddit_config and hasattr(reddit_config, '__dict__'):
+            self.config = reddit_config.__dict__
+        else:
+             self.config = {}
         # Caching
         self.cache_duration = self.config.get('cache_duration_minutes', 45)
         self.last_fetch_time = None

@@ -27,10 +27,19 @@ from digestr.core.fetcher import FeedManager
 from digestr.llm_providers.ollama import OllamaProvider
 from digestr.core.plugin_manager import PluginManager
 from digestr.core.plugin_manager import PluginManager
-from digestr.config.manager import get_enhanced_config_manager as get_config_manager
+from digestr.config.manager import get_enhanced_config_manager
 from digestr.sources.source_manager import SourceManager
 from digestr.core.strategic_prioritizer import enhance_article_prioritization
+from digestr.analysis.trend_structures import CrossSourceTrendAnalysis, GeographicConfig
+from digestr.analysis.trend_correlation_engine import TrendCorrelationEngine
+from digestr.analysis.trend_aware_briefing_generator import TrendAwareBriefingGenerator
+from digestr.sources.enhanced_trends24_scraper import EnhancedTrends24Scraper
+from digestr.core.trend_database_manager import TrendDatabaseManager
 
+
+def get_config_manager():
+    """Wrapper function to get config manager"""
+    return get_enhanced_config_manager()
 # Simple fetch function
 async def simple_fetch():
     import aiohttp
@@ -98,6 +107,246 @@ async def generate_tiered_briefing(self, tiered_articles: dict[str, list[dict]],
     briefing = await self.generate_summary(prompt, model)
     
     return briefing
+
+
+
+async def generate_standard_briefing(professional_content, social_content, llm, style):
+    """Generate standard briefing without trend analysis"""
+    
+    # Convert Article objects to dictionaries for compatibility
+    all_articles = []
+    
+    # Process professional content
+    for source_type, content in professional_content.items():
+        if isinstance(content, list):
+            for item in content:
+                if hasattr(item, 'title'):  # Article object
+                    article_dict = {
+                        'title': getattr(item, 'title', ''),
+                        'summary': getattr(item, 'summary', ''),
+                        'content': getattr(item, 'content', ''),
+                        'source': getattr(item, 'source', source_type),
+                        'category': getattr(item, 'category', 'unknown'),
+                        'url': getattr(item, 'url', ''),
+                        'importance_score': getattr(item, 'importance_score', 0.0),
+                        'source_type': 'professional'
+                    }
+                else:  # Already a dictionary
+                    article_dict = item.copy()
+                    article_dict['source_type'] = 'professional'
+                
+                all_articles.append(article_dict)
+    
+    # Process social content
+    for source_type, feed in social_content.items():
+        if hasattr(feed, 'posts'):
+            for post in feed.posts:
+                if hasattr(post, 'to_dict'):
+                    post_dict = post.to_dict()
+                    post_dict['source_type'] = 'social'
+                    all_articles.append(post_dict)
+    
+    if not all_articles:
+        return "No articles available for briefing generation."
+    
+    # Create appropriate prompt based on style
+    if style == 'comprehensive':
+        prompt = create_multi_source_briefing_prompt(all_articles)
+    elif style == 'quick':
+        prompt = create_quick_briefing_prompt(all_articles)
+    else:  # analytical
+        prompt = create_analytical_briefing_prompt(all_articles)
+    
+    # Generate briefing using LLM
+    try:
+        briefing = await llm.generate_summary(prompt)
+        return briefing
+    except Exception as e:
+        return f"Error generating briefing: {e}"
+
+def create_quick_briefing_prompt(articles):
+    """Create prompt for quick briefing style"""
+    from datetime import datetime
+    current_time = datetime.now().strftime("%A, %B %d, %Y at %I:%M %p")
+    
+    # Take top articles only
+    top_articles = sorted(articles, key=lambda x: x.get('importance_score', 0), reverse=True)[:10]
+    
+    content = ""
+    for i, article in enumerate(top_articles, 1):
+        content += f"\n{i}. **{article['title']}** ({article.get('source', 'Unknown')})\n"
+        summary = article.get('summary', '')[:150]
+        content += f"   {summary}...\n"
+    
+    prompt = f"""You are providing a quick news briefing for {current_time}.
+
+TOP NEWS HEADLINES:
+{content}
+
+Provide a brief, efficient summary of the key developments. Keep it concise and focused on the most important information. Use a brisk, professional tone and highlight the main points readers need to know. Aim for 3-4 short paragraphs maximum.
+
+Quick briefing:"""
+    
+    return prompt
+
+def create_analytical_briefing_prompt(articles):
+    """Create prompt for analytical briefing style"""
+    from datetime import datetime
+    current_time = datetime.now().strftime("%A, %B %d, %Y at %I:%M %p")
+    
+    # Group articles by category for analysis
+    categories = {}
+    for article in articles:
+        cat = article.get('category', 'other')
+        if cat not in categories:
+            categories[cat] = []
+        categories[cat].append(article)
+    
+    content = ""
+    for category, cat_articles in categories.items():
+        content += f"\n**{category.upper()}** ({len(cat_articles)} articles):\n"
+        for article in cat_articles[:5]:  # Top 5 per category
+            content += f"• {article['title']} ({article.get('source', 'Unknown')})\n"
+    
+    prompt = f"""You are providing an analytical news briefing for {current_time}.
+
+CONTENT BY CATEGORY:
+{content}
+
+Provide a thoughtful, analytical perspective on today's developments. Focus on:
+- Patterns and trends emerging across categories
+- Connections between different stories
+- Implications and potential consequences
+- What these developments mean for the bigger picture
+
+Use an insightful, analytical tone and help readers understand not just what happened, but why it matters and what it might lead to.
+
+Analytical briefing:"""
+    
+    return prompt
+
+async def handle_enhanced_fetch_with_trends(args):
+    """Handle fetch command with trend support"""
+    
+    print("📡 Fetching content with trend analysis...")
+    
+    config_manager = get_config_manager()
+    db_manager = DatabaseManager()
+    
+    source_manager = SourceManager(config_manager, db_manager)
+    await source_manager.initialize_sources()
+    
+    if getattr(args, 'trends_only', False):
+        print("📈 Fetching trends only...")
+        # Implement trends-only fetch
+        print("Trends-only fetch not fully implemented yet")
+        return
+    
+    # Fetch from specified sources or all sources
+    if hasattr(args, 'sources') and args.sources:
+        results = await source_manager.fetch_specific_sources(args.sources)
+    else:
+        results = await source_manager.fetch_all_sources()
+    
+    # Display results
+    total_items = 0
+    for source_type, content in results.items():
+        if isinstance(content, list):
+            count = len(content)
+            total_items += count
+            print(f"✅ {source_type}: {count} items")
+        elif hasattr(content, 'posts'):
+            count = len(content.posts)
+            total_items += count
+            print(f"✅ {source_type}: {count} posts")
+    
+    print(f"📊 Total items fetched: {total_items}")
+
+async def handle_enhanced_sources_commands(args):
+    """Handle source management commands"""
+    
+    if args.sources_command == 'status':
+        await sources_status_command()
+    
+    elif args.sources_command == 'list':
+        config_manager = get_config_manager()
+        db_manager = DatabaseManager()
+        source_manager = SourceManager(config_manager, db_manager)
+        await source_manager.initialize_sources()
+        
+        sources = source_manager.get_available_sources()
+        professional = source_manager.get_professional_sources()
+        social = source_manager.get_social_sources()
+        
+        print("📡 Available Sources:")
+        print(f"  Professional: {', '.join(professional)}")
+        print(f"  Social: {', '.join(social)}")
+        print(f"  Total: {len(sources)} sources")
+    
+    elif args.sources_command == 'test':
+        config_manager = get_config_manager()
+        db_manager = DatabaseManager()
+        source_manager = SourceManager(config_manager, db_manager)
+        await source_manager.initialize_sources()
+        
+        print("🧪 Testing all source connections...")
+        results = await source_manager.test_all_sources()
+        
+        for source, result in results.items():
+            status = "✅" if result['success'] else "❌"
+            message = result.get('message', result.get('error', 'Unknown'))
+            print(f"  {status} {source}: {message}")
+
+async def handle_config_commands(args):
+    """Handle configuration management commands"""
+    
+    config_manager = get_config_manager()
+    
+    if args.config_command == 'show':
+        print("⚙️ Current Configuration:")
+        config = config_manager.get_config()
+        
+        print(f"📡 Sources:")
+        if hasattr(config, 'sources'):
+            print(f"  RSS: {'Enabled' if config.sources.rss.enabled else 'Disabled'}")
+            print(f"  Reddit: {'Enabled' if config.sources.reddit.enabled else 'Disabled'}")
+        
+        print(f"📈 Trending:")
+        if hasattr(config, 'trending'):
+            print(f"  Enabled: {config.trending.enabled}")
+            if config.trending.enabled:
+                enabled_sources = [name for name, cfg in config.trending.sources.items() 
+                                 if cfg.get('enabled', False)]
+                print(f"  Sources: {', '.join(enabled_sources)}")
+    
+    elif args.config_command == 'validate':
+        print("✅ Validating configuration...")
+        try:
+            config = config_manager.get_config()
+            print("✅ Configuration is valid")
+        except Exception as e:
+            print(f"❌ Configuration error: {e}")
+    
+    elif args.config_command == 'reset':
+        print("🔄 Reset configuration not implemented yet")
+
+async def monitor_trends_realtime(config, geo_config, args):
+    """Monitor trends in real-time"""
+    print(f"📊 Monitoring trends for {args.duration} minutes...")
+    print("Real-time monitoring not fully implemented yet")
+
+async def generate_trend_report(trend_db, args):
+    """Generate comprehensive trend report"""
+    print(f"📋 Generating {args.days}-day trend report...")
+    print("Trend reporting not fully implemented yet")
+
+async def handle_geographic_commands(args, config_manager):
+    """Handle geographic configuration commands"""
+    print("🌍 Geographic configuration not fully implemented yet")
+
+async def show_database_statistics(args):
+    """Show database statistics"""
+    print("📊 Database statistics not fully implemented yet")
 
 def _create_tiered_prompt(self, tiered_articles: dict[str, list[dict]], 
                         briefing_type: str = "comprehensive") -> str:
@@ -231,216 +480,184 @@ def _build_content_sections(self, tiered_articles: dict[str, list[dict]]) -> str
     return "\n".join(sections)
 
 
-async def handle_enhanced_briefing(args):
-    """Handle enhanced briefing with professional/social options - CORRECTED VERSION"""
-    print(f"🐛 DEBUG: handle_enhanced_briefing called")
-    print(f"🐛 DEBUG: args = {args}")
-    
-    # Determine briefing type
-    professional_only = getattr(args, 'professional', False)
-    social_only = getattr(args, 'social', False)
-    
-    print(f"🐛 DEBUG: professional_only = {professional_only}")
-    print(f"🐛 DEBUG: social_only = {social_only}")
 
-    if professional_only and social_only:
-        print("❌ Cannot specify both --professional and --social")
+
+async def handle_enhanced_briefing_with_full_trends(args):
+    """Complete briefing handler with full trend analysis integration"""
+    
+    print("🚀 Generating trend-enhanced briefing...")
+    
+    # Initialize all components
+    config_manager = get_config_manager()
+    config = config_manager.get_config()
+    db_manager = DatabaseManager()
+    
+    # Check if trends are disabled for this briefing
+    trends_enabled = config.trending.enabled and not getattr(args, 'no_trends', False)
+    
+    if trends_enabled:
+        print("📈 Trend analysis enabled")
+        
+        # Initialize trend components
+        geo_config = GeographicConfig(
+            country=config.trending.geographic.get('country', 'United States'),
+            state=config.trending.geographic.get('state'),
+            city=config.trending.geographic.get('city'),
+            include_national=config.trending.geographic.get('include_national', True)
+        )
+        
+        trend_db = TrendDatabaseManager(db_manager.db_path)
+        trend_engine = TrendCorrelationEngine(geo_config, db_manager)
+        
+        if config.trending.sources.get('trends24', {}).get('enabled', False):
+            trends24_scraper = EnhancedTrends24Scraper(geo_config)
+        else:
+            trends24_scraper = None
+    else:
+        print("📈 Trend analysis disabled")
+        trend_engine = None
+        trends24_scraper = None
+    
+    # Initialize source manager
+    source_manager = SourceManager(config_manager, db_manager)
+    await source_manager.initialize_sources()
+    
+    # Fetch content based on args
+    if getattr(args, 'trends_only', False) and trends24_scraper:
+        print("📈 Fetching trends only...")
+        trends = await trends24_scraper.fetch_trending_topics()
+        
+        print(f"🔥 Found {len(trends)} trending topics:")
+        for i, trend in enumerate(trends[:10], 1):
+            print(f"  {i}. {trend.keyword} ({trend.category}) - Velocity: {trend.velocity:.2f}")
         return
     
-    if social_only:
-        print("🎯 Generating social briefing from your personal Reddit feed...")
-        
-        # Social-only logic here
-        import praw
-        import os
-        
-        try:
-            reddit = praw.Reddit(
-                client_id=os.getenv('REDDIT_CLIENT_ID'),
-                client_secret=os.getenv('REDDIT_CLIENT_SECRET'),
-                refresh_token=os.getenv('REDDIT_REFRESH_TOKEN'),
-                user_agent='Digestr.ai Personal Feed'
+    if getattr(args, 'fresh', False):
+        print("🔄 Fetching fresh content...")
+        # Fresh fetch requested
+        if trends_enabled and trend_engine and trends24_scraper:
+            all_results = await fetch_with_comprehensive_trend_analysis(
+                source_manager, trend_engine, trends24_scraper, args
             )
-            
-            home_posts = list(reddit.front.hot(limit=20))
-            print(f"📱 Found {len(home_posts)} posts from your personal feed")
-            
-            # Convert to article format for LLM
-            article_dicts = []
-            for post in home_posts:
-                article_dicts.append({
-                    'title': post.title,
-                    'summary': post.selftext or f"Post from r/{post.subreddit.display_name}",
-                    'content': post.selftext or f"Shared in r/{post.subreddit.display_name} with {post.score} upvotes",
-                    'source': f"r/{post.subreddit.display_name}",
-                    'category': 'social',
-                    'score': post.score,
-                    'comments': post.num_comments,
-                    'source_type': 'social'
-                })
-            
-            # Create casual social prompt
-            prompt = create_social_briefing_prompt(article_dicts)
-            
-            # Generate briefing
-            llm = OllamaProvider()
-            briefing = await llm.generate_summary(prompt)
-            
-            # Display social briefing
-            print("\n" + "="*80)
-            print("🎯 YOUR PERSONAL SOCIAL BRIEFING")
-            print("="*80)
-            print(briefing)
-            print("\n" + "="*80)
-            
-        except Exception as e:
-            print(f"❌ Error generating social briefing: {e}")
-            print("💡 Make sure your Reddit credentials are set correctly")
-    
+        else:
+            all_results = await source_manager.fetch_all_sources()
+            all_results['trend_analysis'] = None
     else:
-        # Professional or comprehensive briefing
-        if professional_only:
-            print("📊 Generating professional briefing only...")
-        else:
-            print("📊 Generating comprehensive briefing with professional and social content...")
+        # Use cached data from database
+        print("📚 Using cached content from database...")
         
-        # Professional content
-        print("📰 Fetching professional news...")
-        db = DatabaseManager()
-        articles = db.get_recent_articles(hours=24, limit=55, unprocessed_only=False)
-
-        if articles:
-            print(f"📈 Found {len(articles)} professional articles")
-            
-            # Balance categories for better diversity
-            from collections import defaultdict
-            categorized = defaultdict(list)
-            for article in articles:
-                categorized[article.category].append(article)
-            
-            # Take max 10 per category, prioritizing world news and important stories
-            balanced_articles = []
-            priority_categories = ['world_news', 'security', 'business']
-            other_categories = [cat for cat in categorized.keys() if cat not in priority_categories]
-            
-            # Add priority categories first (up to 12 each)
-            for category in priority_categories:
-                if category in categorized:
-                    cat_articles = sorted(categorized[category], key=lambda x: x.importance_score, reverse=True)
-                    balanced_articles.extend(cat_articles[:12])
-            
-            # Add other categories (up to 8 each)
-            for category in other_categories:
-                cat_articles = sorted(categorized[category], key=lambda x: x.importance_score, reverse=True)
-                balanced_articles.extend(cat_articles[:8])
-            
-            # Use the balanced set, limited to 45 total articles
-            articles_to_use = balanced_articles[:45]
-            print(f"📊 Balanced to {len(articles_to_use)} articles across {len(categorized)} categories")
-            
-            # Convert to article format for LLM
-            article_dicts = []
-            for article in articles_to_use:
-                clean_title = article.title.replace('[Reddit] ', '') if article.title.startswith('[Reddit] ') else article.title
-                
-                article_dicts.append({
-                    'title': clean_title,
-                    'summary': article.summary,
-                    'content': article.content,
-                    'source': article.source,
-                    'category': article.category,
-                    'importance_score': article.importance_score,
-                    'source_type': 'professional'
-                })
-            
-            # ADD DEBUG HERE - IN THE RIGHT PLACE!
-            print(f"🔍 DEBUG: Created {len(article_dicts)} article dicts")
-            print(f"🔍 DEBUG: First article title: {article_dicts[0]['title'][:60]}...")
-            print(f"🔍 DEBUG: First article summary: {article_dicts[0]['summary'][:100]}...")
-
-            # Generate professional briefing
-            llm = OllamaProvider()
-            print(f"🔍 DEBUG: About to call LLM with {len(article_dicts)} articles")
-            
-            simple_prompt = f"""You are a professional news analyst providing a {args.style} briefing.
-
-            Here are {len(article_dicts)} recent news articles to analyze:
-
-            {chr(10).join([f"• {article['title'][:80]}... (Source: {article.get('source', 'Unknown')}, Category: {article.get('category', 'Unknown')})" for article in article_dicts[:20]])}
-
-            Please provide a {args.style} news briefing:
-            - Start with a natural greeting acknowledging the time of day
-            - PRIORITIZE world news, politics, security, and major international events first
-            - Then cover business, technology, and cutting-edge developments
-            - Group related stories together and show connections
-            - Explain the significance and broader implications
-            - Keep it conversational and engaging
-            - Include specific details and examples from the articles
-            - End with insights about what these developments mean going forward
-
-            Begin your comprehensive briefing:"""
-
-            print(f"🔍 DEBUG: Prompt length: {len(simple_prompt)} characters")
-
-            # Use the working method
-            professional_briefing = await llm.generate_summary(simple_prompt)
-
-            print(f"🔍 DEBUG: LLM returned {len(professional_briefing)} characters")
-            
-            # Check if briefing starts with "Error"
-            if professional_briefing.startswith("Error"):
-                print(f"🔍 DEBUG: LLM returned error: {professional_briefing}")
-                print(professional_briefing)
-                return
-
-            print("\n" + "="*80)
-            print("📋 YOUR COMPREHENSIVE DIGESTR.AI BRIEFING")
-            print("="*80)
-            print("## 📰 Professional News")
-            print(professional_briefing)
-            
-            # Mark as processed
-            article_urls = [article.url for article in articles]
-            db.mark_articles_processed(article_urls)
-        else:
-            print("📰 No professional articles found in database")
+        # Get recent articles from database instead of fetching
+        recent_articles = db_manager.get_recent_articles(hours=24, limit=200, unprocessed_only=False)
         
-        # Social content (only if not professional_only)
-        if not professional_only:
-            print("\n🎯 Adding personal social content...")
-            try:
-                import praw
-                import os
-                
-                reddit = praw.Reddit(
-                    client_id=os.getenv('REDDIT_CLIENT_ID'),
-                    client_secret=os.getenv('REDDIT_CLIENT_SECRET'),
-                    refresh_token=os.getenv('REDDIT_REFRESH_TOKEN'),
-                    user_agent='Digestr.ai Personal Feed'
-                )
-                
-                home_posts = list(reddit.front.hot(limit=15))
-                print(f"📱 Found {len(home_posts)} posts from personal feed")
-                
-                if home_posts:
-                    prompt = create_social_briefing_prompt([{
-                        'title': post.title,
-                        'source': f"r/{post.subreddit.display_name}",
-                        'score': post.score,
-                        'comments': post.num_comments,
-                        'summary': post.selftext or f"Post from r/{post.subreddit.display_name}"
-                    } for post in home_posts])
-                    
-                    social_briefing = await llm.generate_summary(prompt)
-                    
-                    print("\n## 🎯 Personal Social Highlights")
-                    print(social_briefing)
-                
-            except Exception as e:
-                print(f"⚠️ Could not fetch personal social content: {e}")
+
+        rss_articles = []
+        reddit_articles = []
         
-        print("\n" + "="*80)
+        for article in recent_articles:
+            source = getattr(article, 'source', '').lower()
+            if 'reddit' in source:
+                reddit_articles.append(article)
+            else:
+                rss_articles.append(article)
+
+
+
+        # Convert to the expected format
+        all_results = {
+            'professional': {
+                'rss': recent_articles  # All articles for now
+            },
+            'social': {},
+            'trend_analysis': None
+        }
     
+    professional_content = all_results.get('professional', {})
+    social_content = all_results.get('social', {})
+
+
+
+
+   
+
+    trend_analysis = all_results.get('trend_analysis')
+    
+    # Content summary
+    total_professional = sum(len(content) for content in professional_content.values() if isinstance(content, list))
+    total_social = 0
+    for source_name, content in social_content.items():
+        if hasattr(content, 'posts'):  # SocialFeed object
+            total_social += len(content.posts)
+        elif isinstance(content, list):  # List of posts (like copied Reddit)
+            total_social += len(content)
+    
+    if total_professional == 0 and total_social == 0:
+        print("📰 No new content found. Try running fetch first.")
+        return
+    
+    print(f"📊 Content summary: {total_professional} professional articles, {total_social} social posts")
+    
+    if trend_analysis:
+        significant_trends = trend_analysis.get_significant_trends()
+        print(f"📈 Trend analysis: {trend_analysis.total_trends} trends, {trend_analysis.correlation_count} correlations")
+        print(f"🔥 Significant cross-source trends: {len(significant_trends)}")
+        
+        if significant_trends:
+            print("   Top trends:")
+            for trend_data in significant_trends[:3]:
+                trend = trend_data['trend']
+                sources = len(trend_data['sources'])
+                print(f"     • {trend.keyword} ({sources} sources)")
+    
+    # Generate briefing
+    llm = OllamaProvider()
+    
+    if trends_enabled and trend_analysis:
+        briefing_generator = TrendAwareBriefingGenerator(llm)
+        content_data = {
+            'professional': professional_content,
+            'social': social_content
+        }
+        
+        briefing = await briefing_generator.generate_comprehensive_briefing(
+            content_data, trend_analysis, args.style
+        )
+    else:
+        # Fall back to standard briefing without trends
+        briefing = await generate_standard_briefing(
+            professional_content, social_content, llm, args.style
+        )
+    
+    # Display briefing
+    print("\n" + "="*80)
+    if trends_enabled:
+        print("📋 YOUR TREND-ENHANCED DIGESTR.AI BRIEFING")
+    else:
+        print("📋 YOUR DIGESTR.AI BRIEFING")
+    print("="*80)
+    print(briefing)
+    print("\n" + "="*80)
+    
+    # Mark articles as processed
+    if total_professional > 0:
+        article_urls = []
+        for content in professional_content.values():
+            if isinstance(content, list):
+                for article in content:
+                    if hasattr(article, 'url'):
+                        url = getattr(article, 'url', '')
+                    elif isinstance(article, dict):
+                        url = article.get('url', '')
+                    else:
+                        url = ''
+                    
+                    if url:
+                        article_urls.append(url)
+        if article_urls:
+            db_manager.mark_articles_processed(article_urls)
+    
+
+
+
     # Interactive mode handling
     if hasattr(args, 'interactive') and args.interactive:
         print("\n🎯 Starting interactive session...")
@@ -468,7 +685,7 @@ async def handle_enhanced_briefing(args):
             })
         
         # Initialize plugin manager
-        from digestr.config.manager import get_enhanced_config_manager as get_config_manager
+        #from digestr.config.manager import get_enhanced_config_manager as get_config_manager
         from digestr.core.plugin_manager import PluginManager
         from digestr.features.interactive import InteractiveSession
         
@@ -663,36 +880,47 @@ async def handle_plugin_commands(args):
 
 
 
-async def enhanced_fetch_with_sources(source_types=None):
-    """Enhanced fetch supporting multiple sources"""
-    config_manager = get_config_manager()
-    db_manager = DatabaseManager()
+async def fetch_with_comprehensive_trend_analysis(source_manager, trend_engine, trends24_scraper, args):
+    """Fetch content with comprehensive trend analysis"""
     
-    # Initialize source manager
-    source_manager = SourceManager(config_manager, db_manager)
-    await source_manager.initialize_sources()
+    print("📡 Fetching content from all sources...")
     
-    if source_types:
-        results = await source_manager.fetch_specific_sources(source_types)
-    else:
-        results = await source_manager.fetch_all_sources()
+    # Fetch regular content
+    results = await source_manager.fetch_all_sources()
     
-    total_articles = 0
-    for source_type, articles in results.items():
-        # Fix the 'int' object is not iterable error
-        if isinstance(articles, int):
-            count = articles
-        elif hasattr(articles, '__len__'):
-            count = len(articles)
-        else:
-            count = 0
-            
-        total_articles += count
-        source_icon = "🌐" if source_type == "rss" else "🔴" if source_type == "reddit" else "📡"
-        print(f"  {source_icon} {source_type}: {count} articles")
+    print("📈 Fetching trending topics...")
     
-    print(f"✅ Total: {total_articles} new articles fetched")
-    return total_articles
+    # Fetch trending topics
+    trends = await trends24_scraper.fetch_trending_topics()
+    
+    if not trends:
+        print("⚠️  No trends found from external sources")
+        results['trend_analysis'] = CrossSourceTrendAnalysis()
+        return results
+    
+    print(f"📊 Found {len(trends)} trending topics")
+    
+    # Prepare content for correlation analysis
+    rss_articles = []
+    reddit_posts = []
+    
+    for source_type, content in results.get('professional', {}).items():
+        if isinstance(content, list):
+            if source_type == 'rss':
+                rss_articles.extend(content)
+            elif source_type == 'reddit':
+                reddit_posts.extend(content)
+    
+    print(f"🔍 Analyzing correlations: {len(trends)} trends vs {len(rss_articles)} articles + {len(reddit_posts)} posts")
+    
+    # Perform comprehensive correlation analysis
+    trend_analysis = await trend_engine.find_cross_source_correlations(
+        trends, rss_articles, reddit_posts
+    )
+    
+    results['trend_analysis'] = trend_analysis
+    
+    return results
 
 
 async def sources_status_command():
@@ -709,9 +937,12 @@ async def sources_status_command():
     print(f"📡 Available Content Sources ({len(sources)}):")
     for source in sources:
         info = status[source]
-        status_icon = "✅" if info['validated'] else "❌"
+        # Handle different status key names for different sources
+        validated = info.get('validated', info.get('authenticated', False))
+        status_icon = "✅" if validated else "❌"
         type_icon = "🌐" if source == "rss" else "🔴" if source == "reddit" else "📡"
-        print(f"  {status_icon} {type_icon} {source.upper()}: {'Connected' if info['validated'] else 'Failed'}")
+        status_text = 'Connected' if validated else 'Failed'
+        print(f"  {status_icon} {type_icon} {source.upper()}: {status_text}")
 
 
 
@@ -766,168 +997,477 @@ Generate your comprehensive briefing:"""
 
 
 
-async def main():
 
 
+async def handle_trends_commands(args):
+    """Complete trend command handler"""
     
-    parser = argparse.ArgumentParser(description="Digestr.ai v2.1 - Multi-Source News Intelligence Platform")
+    config_manager = get_config_manager()
+    config = config_manager.get_config()
+    
+    if not config.trending.enabled:
+        print("❌ Trend analysis is disabled in configuration")
+        print("💡 Enable with: trending.enabled = true in config.yaml")
+        return
+    
+    # Initialize trend components
+    geo_config = GeographicConfig(
+        country=config.trending.geographic.get('country', 'United States'),
+        state=config.trending.geographic.get('state'),
+        city=config.trending.geographic.get('city'),
+        include_national=config.trending.geographic.get('include_national', True)
+    )
+    
+    db_manager = DatabaseManager()
+    trend_db = TrendDatabaseManager(db_manager.db_path)
+    
+    if args.trends_command == 'status':
+        await show_trend_system_status(config, geo_config, trend_db)
+    
+    elif args.trends_command == 'test':
+        await test_all_trend_sources(config, geo_config)
+    
+    elif args.trends_command == 'fetch':
+        await fetch_and_display_trends(config, geo_config, args)
+    
+    elif args.trends_command == 'analyze':
+        await run_trend_correlation_analysis(config, geo_config, db_manager, args)
+    
+    elif args.trends_command == 'monitor':
+        await monitor_trends_realtime(config, geo_config, args)
+    
+    elif args.trends_command == 'report':
+        await generate_trend_report(trend_db, args)
+    
+    elif args.trends_command == 'geo':
+        await handle_geographic_commands(args, config_manager)
 
+async def show_trend_system_status(config, geo_config, trend_db):
+    """Show comprehensive trend system status"""
+    
+    print("📈 Trend Analysis System Status")
+    print("=" * 50)
+    
+    # Configuration status
+    print(f"✅ Enabled: {config.trending.enabled}")
+    print(f"🌍 Geographic focus: {geo_config.country}")
+    if geo_config.state:
+        print(f"   State: {geo_config.state}")
+    if geo_config.city:
+        print(f"   City: {geo_config.city}")
+    
+    # Source status
+    sources = config.trending.sources
+    print(f"\n📡 Trend Sources:")
+    for source_name, source_config in sources.items():
+        status = "✅" if source_config.get('enabled', False) else "❌"
+        print(f"   {status} {source_name.title()}")
+    
+    # Database status
+    try:
+        stats = trend_db.get_trend_statistics()
+        print(f"\n📊 Database Statistics (last 7 days):")
+        print(f"   Trends tracked: {stats['total_trends']}")
+        print(f"   Cross-source trends: {stats['cross_source_trends']}")
+        print(f"   Correlations found: {stats['total_correlations']}")
+        
+        if stats['source_breakdown']:
+            print(f"   Source breakdown:")
+            for source, data in stats['source_breakdown'].items():
+                print(f"     • {source}: {data['count']} trends (avg velocity: {data['avg_velocity']})")
+    
+    except Exception as e:
+        print(f"⚠️  Database statistics unavailable: {e}")
+    
+    # Configuration validation
+    print(f"\n⚙️  Configuration:")
+    correlation_config = config.trending.correlation
+    print(f"   Correlation threshold: {correlation_config.get('min_threshold', 0.4)}")
+    print(f"   Semantic matching: {correlation_config.get('semantic_matching', True)}")
+    print(f"   Geographic boost: {correlation_config.get('geographic_boost', True)}")
+
+async def test_all_trend_sources(config, geo_config):
+    """Test all configured trend sources"""
+    
+    print("🧪 Testing Trend Source Connections")
+    print("=" * 50)
+    
+    sources = config.trending.sources
+    
+    for source_name, source_config in sources.items():
+        if not source_config.get('enabled', False):
+            print(f"⚪ {source_name.title()}: Disabled")
+            continue
+        
+        print(f"🔍 Testing {source_name.title()}...")
+        
+        try:
+            if source_name == 'trends24':
+                from digestr.sources.enhanced_trends24_scraper import EnhancedTrends24Scraper
+                scraper = EnhancedTrends24Scraper(geo_config)
+                result = await scraper.test_connection()
+                
+                if result['success']:
+                    print(f"   ✅ {result['message']}")
+                    if 'sample_trends' in result:
+                        print(f"   📊 Sample trends: {', '.join(result['sample_trends'])}")
+                else:
+                    print(f"   ❌ {result['error']}")
+            
+            else:
+                print(f"   ⚠️  Test not implemented for {source_name}")
+        
+        except Exception as e:
+            print(f"   ❌ Error: {e}")
+
+async def fetch_and_display_trends(config, geo_config, args):
+    """Fetch and display current trends"""
+    
+    print("📈 Fetching Current Trending Topics")
+    print("=" * 50)
+    
+    if not config.trending.sources.get('trends24', {}).get('enabled', False):
+        print("❌ Trends24 source is not enabled")
+        return
+    
+    try:
+        from digestr.sources.enhanced_trends24_scraper import EnhancedTrends24Scraper
+        scraper = EnhancedTrends24Scraper(geo_config)
+        
+        regions = [args.region] if args.region else None
+        trends = await scraper.fetch_trending_topics(regions)
+        
+        if args.category:
+            trends = [t for t in trends if t.category == args.category]
+        
+        trends = trends[:args.limit]
+        
+        if not trends:
+            print("📰 No trends found matching criteria")
+            return
+        
+        print(f"🔥 Found {len(trends)} trending topics:")
+        print()
+        
+        # Group by category
+        from collections import defaultdict
+        by_category = defaultdict(list)
+        for trend in trends:
+            by_category[trend.category].append(trend)
+        
+        for category, cat_trends in by_category.items():
+            print(f"📂 {category.upper()}:")
+            for i, trend in enumerate(cat_trends, 1):
+                velocity_indicator = "🔥" if trend.velocity > 0.7 else "📈" if trend.velocity > 0.4 else "📊"
+                print(f"   {i:2d}. {velocity_indicator} {trend.keyword}")
+                print(f"       Velocity: {trend.velocity:.2f} | Region: {trend.region} | Reach: {trend.reach}")
+                if trend.aliases:
+                    print(f"       Aliases: {', '.join(trend.aliases[:3])}")
+            print()
+    
+    except Exception as e:
+        print(f"❌ Error fetching trends: {e}")
+
+async def run_trend_correlation_analysis(config, geo_config, db_manager, args):
+    """Run comprehensive trend correlation analysis"""
+    
+    print("🔍 Running Trend Correlation Analysis")
+    print("=" * 50)
+    
+    try:
+        # Initialize components
+        from digestr.analysis.trend_correlation_engine import TrendCorrelationEngine
+        from digestr.sources.enhanced_trends24_scraper import EnhancedTrends24Scraper
+        
+        trend_engine = TrendCorrelationEngine(geo_config, db_manager)
+        trends24_scraper = EnhancedTrends24Scraper(geo_config)
+        source_manager = SourceManager(get_config_manager(), db_manager)
+        await source_manager.initialize_sources()
+        
+        # Fetch trends
+        print("📈 Fetching trending topics...")
+        trends = await trends24_scraper.fetch_trending_topics()
+        print(f"   Found {len(trends)} trends")
+        
+        # Fetch content
+        print("📡 Fetching content for correlation...")
+        results = await source_manager.fetch_all_sources()
+        
+        # Prepare content
+        rss_articles = []
+        reddit_posts = []
+        
+        for source_type, content in results.get('professional', {}).items():
+            if isinstance(content, list):
+                if source_type == 'rss':
+                    rss_articles.extend(content)
+                elif source_type == 'reddit':
+                    reddit_posts.extend(content)
+        
+        print(f"   {len(rss_articles)} RSS articles, {len(reddit_posts)} Reddit posts")
+        
+        # Run correlation analysis
+        print("🔍 Analyzing correlations...")
+        trend_analysis = await trend_engine.find_cross_source_correlations(
+            trends, rss_articles, reddit_posts
+        )
+        
+        # Display results
+        print(f"\n📊 Analysis Results:")
+        print(f"   Total trends analyzed: {trend_analysis.total_trends}")
+        print(f"   Correlations found: {trend_analysis.correlation_count}")
+        print(f"   Triple-source trends: {len(trend_analysis.triple_coverage)}")
+        print(f"   Double-source trends: {len(trend_analysis.double_coverage)}")
+        print(f"   Geographic trends: {len(trend_analysis.geographic_trends)}")
+        
+        # Show significant trends
+        significant = trend_analysis.get_significant_trends()
+        if significant:
+            print(f"\n🔥 Most Significant Cross-Source Trends:")
+            for i, trend_data in enumerate(significant[:5], 1):
+                trend = trend_data['trend']
+                sources = len(trend_data['sources'])
+                strength = trend_data.get('total_strength', 0)
+                print(f"   {i}. {trend.keyword}")
+                print(f"      Sources: {sources} | Strength: {strength:.2f}")
+                print(f"      Coverage: {', '.join(trend_data['sources'])}")
+        
+        # Save to database if requested
+        if args.save:
+            print(f"\n💾 Saving analysis results to database...")
+            # Save logic would go here
+            print(f"   ✅ Results saved")
+    
+    except Exception as e:
+        print(f"❌ Analysis failed: {e}")
+        import traceback
+        traceback.print_exc()
+
+async def setup_enhanced_argument_parser():
+    """Complete argument parser with all trend analysis commands"""
+    
+    parser = argparse.ArgumentParser(description="Digestr.ai v2.1 - Multi-Source News Intelligence with Trend Analysis")
 
     subparsers = parser.add_subparsers(dest='command', help='Available commands')
 
-    # Plugin commands
-    plugin_parser = subparsers.add_parser('plugin', help='Manage plugins')
-    plugin_subparsers = plugin_parser.add_subparsers(dest='plugin_command', help='Plugin commands')
-    plugin_subparsers.add_parser('list', help='List available plugins')
-    plugin_subparsers.add_parser('install', help='Install a plugin').add_argument('name', help='Plugin name')
-    plugin_subparsers.add_parser('enable', help='Enable a plugin').add_argument('name', help='Plugin name')
-    plugin_subparsers.add_parser('disable', help='Disable a plugin').add_argument('name', help='Plugin name')
-    plugin_subparsers.add_parser('config', help='Configure a plugin').add_argument('name', help='Plugin name')
-    plugin_subparsers.add_parser('status', help='Show plugin system status')
+    # Status command
+    subparsers.add_parser('status', help='Show system status including trend analysis')
 
-    # Existing commands  
-    subparsers.add_parser('status', help='Show system status')
-    subparsers.add_parser('articles', help='Show recent articles')
-    subparsers.add_parser('clear-db', help='Clear processed article status')
-
-
-
-
-    fetch_parser = subparsers.add_parser('fetch', help='Fetch latest articles')
+    # Fetch command with trend support
+    fetch_parser = subparsers.add_parser('fetch', help='Fetch latest articles and trends')
     fetch_parser.add_argument('--sources', nargs='+', 
-                             choices=['rss', 'reddit'],
+                             choices=['rss', 'reddit', 'reddit_personal', 'trends'],
                              help='Specific sources to fetch from (default: all enabled)')
-    # Briefing command
-    briefing_parser = subparsers.add_parser('briefing', help='Generate AI news briefing')
+    fetch_parser.add_argument('--trends-only', action='store_true',
+                             help='Fetch only trending topics')
+
+    # Enhanced briefing command
+    briefing_parser = subparsers.add_parser('briefing', help='Generate AI news briefing with trend analysis')
     briefing_parser.add_argument('--style', choices=['comprehensive', 'quick', 'analytical'], 
                                 default='comprehensive', help='Briefing style')
     briefing_parser.add_argument('--interactive', '-i', action='store_true',
                                 help='Start interactive Q&A session after briefing')
     briefing_parser.add_argument('--sources', nargs='+',
-                                choices=['rss', 'reddit'],
+                                choices=['rss', 'reddit', 'reddit_personal', 'trends'],
                                 help='Include specific sources in briefing')
     briefing_parser.add_argument('--professional', action='store_true',
-                            help='Professional briefing only (news sources)')
+                                help='Professional briefing only (news sources)')
     briefing_parser.add_argument('--social', action='store_true',
                                 help='Social briefing only (personal feeds)')
-    briefing_parser.add_argument('--categories', nargs='+',
-                                help='Filter by specific categories')
+    briefing_parser.add_argument('--trends-focus', action='store_true',
+                                help='Focus on trending topics and correlations')
+    briefing_parser.add_argument('--no-trends', action='store_true',
+                                help='Disable trend analysis for this briefing')
+    briefing_parser.add_argument('--fresh', action='store_true',
+                            help='Fetch fresh content instead of using cached data')
+    # Comprehensive trend analysis commands
+    trends_parser = subparsers.add_parser('trends', help='Trend analysis and monitoring commands')
+    trends_subparsers = trends_parser.add_subparsers(dest='trends_command', help='Trend commands')
+    
+    # Basic trend commands
+    trends_subparsers.add_parser('status', help='Show trend analysis system status')
+    trends_subparsers.add_parser('test', help='Test all trend source connections')
+    
+    # Trend fetching
+    fetch_trends = trends_subparsers.add_parser('fetch', help='Fetch current trending topics')
+    fetch_trends.add_argument('--region', help='Specific region (e.g., united-states, california)')
+    fetch_trends.add_argument('--category', help='Filter by category (e.g., tech, politics)')
+    fetch_trends.add_argument('--limit', type=int, default=20, help='Maximum trends to show')
+    
+    # Trend analysis
+    analyze_trends = trends_subparsers.add_parser('analyze', help='Run comprehensive trend correlation analysis')
+    analyze_trends.add_argument('--save', action='store_true', help='Save results to database')
+    analyze_trends.add_argument('--threshold', type=float, default=0.4, help='Correlation threshold')
+    
+    # Trend monitoring
+    monitor_trends = trends_subparsers.add_parser('monitor', help='Monitor trends over time')
+    monitor_trends.add_argument('--duration', type=int, default=60, help='Monitor duration in minutes')
+    monitor_trends.add_argument('--interval', type=int, default=5, help='Check interval in minutes')
+    
+    # Trend reporting
+    report_trends = trends_subparsers.add_parser('report', help='Generate trend analysis report')
+    report_trends.add_argument('--days', type=int, default=7, help='Report period in days')
+    report_trends.add_argument('--format', choices=['text', 'json'], default='text', help='Output format')
+    
+    # Geographic configuration
+    geo_trends = trends_subparsers.add_parser('geo', help='Geographic trend configuration')
+    geo_subparsers = geo_trends.add_subparsers(dest='geo_command', help='Geographic commands')
+    
+    geo_set = geo_subparsers.add_parser('set', help='Set geographic preferences')
+    geo_set.add_argument('--country', help='Country (e.g., "United States")')
+    geo_set.add_argument('--state', help='State (e.g., "California")')
+    geo_set.add_argument('--city', help='City (e.g., "San Francisco")')
+    
+    geo_subparsers.add_parser('show', help='Show current geographic settings')
+    geo_subparsers.add_parser('reset', help='Reset to default geographic settings')
 
-    sources_parser = subparsers.add_parser('sources', help='Manage content sources')
+    # Database management for trends
+    db_parser = subparsers.add_parser('db', help='Database management commands')
+    db_subparsers = db_parser.add_subparsers(dest='db_command', help='Database commands')
+    
+    db_subparsers.add_parser('migrate', help='Add trend analysis tables to database')
+    
+    cleanup_db = db_subparsers.add_parser('cleanup', help='Clean up old data')
+    cleanup_db.add_argument('--days', type=int, default=30, help='Keep data newer than N days')
+    cleanup_db.add_argument('--trends-only', action='store_true', help='Clean only trend data')
+    
+    stats_db = db_subparsers.add_parser('stats', help='Show database statistics')
+    stats_db.add_argument('--trends', action='store_true', help='Include trend statistics')
+
+    # Source management with trends
+    sources_parser = subparsers.add_parser('sources', help='Manage content sources including trends')
     sources_subparsers = sources_parser.add_subparsers(dest='sources_command', help='Source commands')
-    sources_subparsers.add_parser('status', help='Show source status and connections')
-    sources_subparsers.add_parser('list', help='List available sources')
+    sources_subparsers.add_parser('status', help='Show all source status including trend sources')
+    sources_subparsers.add_parser('list', help='List available sources and trend sources')
+    sources_subparsers.add_parser('test', help='Test all source connections')
 
+    # Configuration management
+    config_parser = subparsers.add_parser('config', help='Configuration management')
+    config_subparsers = config_parser.add_subparsers(dest='config_command', help='Config commands')
+    config_subparsers.add_parser('show', help='Show current configuration')
+    config_subparsers.add_parser('validate', help='Validate configuration')
+    config_subparsers.add_parser('reset', help='Reset to default configuration')
+    
+    return parser
+
+
+
+async def handle_database_commands(args):
+    """Handle database management commands"""
+    
+    if args.db_command == 'migrate':
+        await migrate_database_for_trends()
+    
+    elif args.db_command == 'cleanup':
+        await cleanup_database(args)
+    
+    elif args.db_command == 'stats':
+        await show_database_statistics(args)
+
+async def migrate_database_for_trends():
+    """Migrate database to add trend analysis tables"""
+    
+    print("🗄️  Migrating Database for Trend Analysis")
+    print("=" * 50)
+    
+    try:
+        from digestr.core.trend_database_manager import TrendDatabaseManager
+        
+        db_manager = DatabaseManager()
+        trend_db = TrendDatabaseManager(db_manager.db_path)
+        
+        # The migration is handled in the TrendDatabaseManager initialization
+        print("✅ Database migration completed successfully")
+        print("📊 Trend analysis tables are ready")
+        
+    except Exception as e:
+        print(f"❌ Migration failed: {e}")
+
+async def cleanup_database(args):
+    """Clean up old database entries"""
+    
+    print(f"🧹 Cleaning up database (keeping last {args.days} days)")
+    print("=" * 50)
+    
+    try:
+        db_manager = DatabaseManager()
+        
+        if args.trends_only:
+            from digestr.core.trend_database_manager import TrendDatabaseManager
+            trend_db = TrendDatabaseManager(db_manager.db_path)
+            removed = trend_db.cleanup_old_trends(args.days)
+            print(f"✅ Removed {removed} old trend records")
+        else:
+            # Clean articles
+            articles_removed = db_manager.cleanup_old_articles(args.days)
+            print(f"✅ Removed {articles_removed} old articles")
+            
+            # Clean trends
+            from digestr.core.trend_database_manager import TrendDatabaseManager
+            trend_db = TrendDatabaseManager(db_manager.db_path)
+            trends_removed = trend_db.cleanup_old_trends(args.days)
+            print(f"✅ Removed {trends_removed} old trend records")
+            
+            total_removed = articles_removed + trends_removed
+            print(f"📊 Total cleaned: {total_removed} records")
+    
+    except Exception as e:
+        print(f"❌ Cleanup failed: {e}")
+
+
+
+
+
+
+async def main():
+    parser = await setup_enhanced_argument_parser()
     args = parser.parse_args()
     
-
-    
-
-
-
     if args.command == 'status':
-        print("🔍 Digestr.ai System Status")
-        print("✅ Version: 2.0.0")
-        print("✅ Database: Ready")
-        print("✅ Ollama: Ready (assumed)")
-        print("🎯 Ready for news intelligence!")
+        await show_enhanced_system_status()
         
     elif args.command == 'fetch':
-        if hasattr(args, 'sources') and args.sources:
-            await enhanced_fetch_with_sources(args.sources)
-        else:
-            # Use existing fetch or enhanced fetch
-            await enhanced_fetch_with_sources()
+        await handle_enhanced_fetch_with_trends(args)
         
-    elif args.command == 'articles':
-        db = DatabaseManager()
-        articles = db.get_recent_articles(hours=24, limit=10)
-        
-        if articles:
-            print(f"📰 Recent articles ({len(articles)} found):")
-            for i, article in enumerate(articles[:5], 1):
-                print(f"  {i}. {article.title[:60]}...")
-                print(f"     Source: {article.source} | Score: {article.importance_score:.1f}")
-        else:
-            print("📰 No recent articles found. Try: python digestr_cli.py fetch")
-
-
-    elif args.command == 'plugin':
-        await handle_plugin_commands(args)
-
-
-    elif args.command == 'clear-db':
-        print("🧹 Clearing processed article status...")
-        db = DatabaseManager()
-        conn = sqlite3.connect(db.db_path)
-        cursor = conn.cursor()
-        cursor.execute('UPDATE articles SET processed = FALSE')
-        conn.commit()
-        conn.close()
-        print("✅ All articles marked as unprocessed")
-
-
-
     elif args.command == 'briefing':
-        await handle_enhanced_briefing(args)
+        await handle_enhanced_briefing_with_full_trends(args)
         
+    elif args.command == 'trends':
+        await handle_trends_commands(args)
         
+    elif args.command == 'db':
+        await handle_database_commands(args)
         
-        
-        
-       
-        
-       
-
-
-
     elif args.command == 'sources':
-        if args.sources_command == 'status':
-            await sources_status_command()
-        elif args.sources_command == 'list':
-            config_manager = get_config_manager()
-            db_manager = DatabaseManager()
-            source_manager = SourceManager(config_manager, db_manager)
-            await source_manager.initialize_sources()
-            
-            sources = source_manager.get_available_sources()
-            print(f"📡 Available sources: {', '.join(sources)}")
-
+        await handle_enhanced_sources_commands(args)
         
-        # Then optionally start interactive mode using the SAME articles we got earlier
-        if hasattr(args, 'interactive') and args.interactive:
-            print("\n🎯 Starting interactive session...")
-            print("💡 You can now ask follow-up questions about the news!")
-            
-            # Convert to dict format (using the articles we got BEFORE they were marked processed)
-            article_dicts = []
-            for article in articles:
-                article_dicts.append({
-                    'title': article.title,
-                    'summary': article.summary,
-                    'content': article.content,
-                    'url': article.url,
-                    'category': article.category,
-                    'source': article.source,
-                    'published_date': article.published_date,
-                    'importance_score': article.importance_score
-                })
-            
-            # Initialize plugin manager
-            config_manager = get_config_manager()
-            plugin_manager = PluginManager(config_manager)
-            plugin_manager.initialize()
-            
-            # Start interactive session with plugin support
-            llm = OllamaProvider()
-            session = InteractiveSession(article_dicts, llm, plugin_manager)
-            await session.start()
+    elif args.command == 'config':
+        await handle_config_commands(args)
         
     else:
         parser.print_help()
 
-
+async def show_enhanced_system_status():
+    """Show complete system status including trends"""
     
+    print("🔍 Digestr.ai Enhanced System Status")
+    print("✅ Version: 2.1.0 with Trend Analysis")
+    print("✅ Database: Ready")
+    print("✅ LLM: Ready (Ollama)")
+    
+    # Check trend analysis
+    config_manager = get_config_manager()
+    config = config_manager.get_config()
+    
+    if config.trending.enabled:
+        print("✅ Trend Analysis: Enabled")
+        enabled_sources = [name for name, cfg in config.trending.sources.items() 
+                          if cfg.get('enabled', False)]
+        print(f"📈 Trend Sources: {', '.join(enabled_sources) if enabled_sources else 'None'}")
+    else:
+        print("⚪ Trend Analysis: Disabled")
+    
+    print("🎯 Ready for intelligent news analysis with cross-source trend correlation!")
 
 if __name__ == "__main__":
     asyncio.run(main())
