@@ -174,8 +174,8 @@ class RedditPersonalSource:
         
         posts = []
         filtering = self.config.get('filtering', {})
-        content_types = self.config.get('content_types', ['hot'])
-        time_window_hours = filtering.get('time_window_hours', 24)
+        content_types = self.config.get('content_types', ['hot','rising'])
+        time_window_hours = filtering.get('time_window_hours', 48)
         cutoff_time = datetime.now() - timedelta(hours=time_window_hours)
         
         try:
@@ -237,8 +237,8 @@ class RedditPersonalSource:
         
         # Get filter parameters
         min_upvotes = filtering.get('min_upvotes', 10)
-        max_posts = filtering.get('max_posts', 25)
-        exclude_nsfw = filtering.get('exclude_nsfw', True)
+        max_posts = filtering.get('max_posts', 50)
+        exclude_nsfw = filtering.get('exclude_nsfw', False)
         exclude_subreddits = set(filtering.get('exclude_subreddits', []))
         include_only = set(filtering.get('include_only', []))
         

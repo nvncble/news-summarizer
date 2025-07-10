@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
-Social Content Data Structures
+Social Content Data Structures - FIXED VERSION
 Handles social media posts, personal feeds, and social interactions
 """
 
+import math  # ← ADD THIS IMPORT
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional, List, Dict, Any
@@ -188,13 +189,12 @@ def create_reddit_post_from_submission(submission, platform="reddit") -> SocialP
 
 
 def calculate_interest_score(post: SocialPost, user_preferences: Dict = None) -> float:
-    """Calculate AI-based interest score for a post"""
+    """Calculate AI-based interest score for a post - FIXED VERSION"""
     score = 0.0
     
     # Base engagement score
     if post.platform == "reddit":
-        # Logarithmic scaling for Reddit scores
-        import math
+        # Logarithmic scaling for Reddit scores - FIXED: Added math import
         score += min(5.0, math.log10(max(1, post.score)) * 2)
     
     # Comment engagement bonus
