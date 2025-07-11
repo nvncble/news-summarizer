@@ -33,47 +33,59 @@ from digestr.analysis.trend_aware_briefing_generator import TrendAwareBriefingGe
 
 
 def make_links_clickable_in_briefing(briefing_content: str, content_data: Dict) -> str:
-    """Convert ↗ format to clickable HTML links"""
-    import re
+    """Convert [→] format to clickable HTML links"""
+    from digestr.core.link_processor import LinkProcessor
     
-    # Extract article URLs
-    article_urls = {}
+    # Collect all articles and posts
+    all_items = []
+    
+    # Professional articles
     for source_name, articles in content_data.get('professional', {}).items():
         for article in articles:
-            if isinstance(article, dict):
-                title = article.get('title', '')
-                url = article.get('url', '')
-            else:
-                title = getattr(article, 'title', '')
-                url = getattr(article, 'url', '')
-            
-            if title and url:
-                article_urls[title] = url
+            all_items.append({
+                'title': article.get('title', ''),
+                'url': article.get('url', '')
+            })
     
-    # Pattern to find "text ↗" format
-    arrow_pattern = r'([^↗\n]+)\s*↗'
+    # Social posts
+    for source_name, feed in content_data.get('social', {}).items():
+        if hasattr(feed, 'posts'):
+            for post in feed.posts:
+                all_items.append({
+                    'title': post.title,
+                    'url': post.url or post.source_url
+                })
     
-    def replace_arrow_link(match):
-        title_text = match.group(1).strip()
-        
-        # Simple keyword matching to find URLs
-        matching_url = None
-        title_words = title_text.lower().split()
-        
-        for stored_title, url in article_urls.items():
-            # Check if any significant words from the title appear in stored title
-            if len(title_words) >= 2:
-                key_words = title_words[-3:]  # Last 3 words usually most specific
-                if any(word in stored_title.lower() for word in key_words if len(word) > 3):
-                    matching_url = url
-                    break
-        
-        if matching_url:
-            return f'<a href="{matching_url}" style="color: #007bff; text-decoration: none;">{title_text}</a>'
-        else:
-            return title_text
+    # Process content
+    processor = LinkProcessor()
+    processed = processor.process_briefing_content(briefing_content, all_items)
     
-    return re.sub(arrow_pattern, replace_arrow_link, briefing_content)
+    # Convert to HTML
+    html_content = processor.format_for_html_email(processed)
+    
+    return html_content
+    
+    # def replace_arrow_link(match):
+    #     title_text = match.group(1).strip()
+        
+    #     # Simple keyword matching to find URLs
+    #     matching_url = None
+    #     title_words = title_text.lower().split()
+        
+    #     for stored_title, url in article_urls.items():
+    #         # Check if any significant words from the title appear in stored title
+    #         if len(title_words) >= 2:
+    #             key_words = title_words[-3:]  # Last 3 words usually most specific
+    #             if any(word in stored_title.lower() for word in key_words if len(word) > 3):
+    #                 matching_url = url
+    #                 break
+        
+    #     if matching_url:
+    #         return f'<a href="{matching_url}" style="color: #007bff; text-decoration: none;">{title_text}</a>'
+    #     else:
+    #         return title_text
+    
+    # return re.sub(arrow_pattern, replace_arrow_link, briefing_content)
 
 
 def safe_article_access(obj, attr_name, default=''):

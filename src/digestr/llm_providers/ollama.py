@@ -211,6 +211,18 @@ class OllamaProvider(LLMProvider):
         # Generate the briefing
         briefing = await self.generate_summary(prompt, model)
         
+        # Post-process to ensure links
+        from digestr.core.link_processor import LinkProcessor
+        processor = LinkProcessor()
+        
+        # Collect all articles
+        all_articles = []
+        for tier_articles in tiered_articles.values():
+            all_articles.extend(tier_articles)
+        
+        # Process briefing to add missing links
+        briefing = processor.process_briefing_content(briefing, all_articles)
+        
         return briefing
     
     def _create_tiered_prompt(self, tiered_articles: Dict[str, List[Dict]], 
@@ -270,7 +282,7 @@ BRIEFING STRUCTURE:
 3. Naturally flow into the NOTABLE DEVELOPMENTS, connecting related themes
 4. Weave in QUICK MENTIONS of other interesting stories where relevant
 5. Throughout, explain connections between stories and their broader significance
-6. End with thoughtful insights about what these developments mean going forward
+6. End with brief thoughtful insight about what these developments mean going forward
 
 IMPORTANT GUIDELINES:
 - Write in flowing paragraphs, not bullet points

@@ -232,24 +232,29 @@ class EnhancedBriefingGenerator:
         
         prompt = f"""You are a professional news analyst providing an {briefing_type} briefing.
 
-PROFESSIONAL NEWS CONTENT:
-{article_content}
+    PROFESSIONAL NEWS CONTENT:
+    {article_content}
 
-BRIEFING REQUIREMENTS:
-- Type: {briefing_type}
-- Tone: {tone}
-- Focus: {focus}
+    LINK FORMATTING RULES:
+    - When mentioning ANY article, add [→] immediately after the title
+    - Format: "Article Title [→]" (with a space before the arrow)
+    - Example: "Tech Giant Announces Layoffs [→]"
+    - ALWAYS include [→] for EVERY article mention
+    - Do this naturally within your sentences
 
-CRITICAL INSTRUCTIONS:
-- INCLUDE CLICKABLE LINKS: Format every story as [title](URL) when mentioning articles
-- NO introductory paragraphs or meta-commentary
-- NO concluding summaries ("In conclusion..." etc.)
-- Jump straight into the analysis
-- Connect related stories and explain implications
-- Keep it analytical but concise
-- Focus on significance and broader context
+    BRIEFING REQUIREMENTS:
+    - Type: {briefing_type}
+    - Tone: {tone}
+    - Focus: {focus}
 
-Begin your analysis immediately:"""
+    CRITICAL INSTRUCTIONS:
+    - Jump straight into the analysis
+    - Add [→] after EVERY article title you mention
+    - Connect related stories and explain implications
+    - Keep it analytical but concise
+    - Focus on significance and broader context
+
+    Begin your analysis immediately:"""
 
         return prompt
     
@@ -288,13 +293,17 @@ Begin your analysis immediately:"""
                 
                 social_content += f"\n**r/{community}** ({len(community_posts)} posts)\n"
                 
-                for post in community_posts[:5]:  # Top 5 per community
+                for post in community_posts[:5]:
                     score = post.get('score', 0)
                     comments = post.get('comments', 0)
                     engagement = "🔥" if score > 1000 else "📈" if score > 100 else "💬"
                     
                     social_content += f"\n{engagement} **{post['title']}** ({score} ⬆️, {comments} 💬)\n"
-                    social_content += f"URL: {post.get('url', '')}\n"  # ADD URL FOR LINKS
+                    
+                    # Include URL for link formatting
+                    url = post.get('url', '') or post.get('source_url', '')
+                    if url:
+                        social_content += f"URL: {url}\n"
                     
                     content = post.get('content', '')[:200]
                     if content:
@@ -305,6 +314,13 @@ Begin your analysis immediately:"""
 
 SOCIAL CONTENT HIGHLIGHTS:
 {social_content}
+
+LINK FORMATTING RULES:
+- When mentioning ANY post, add [→] immediately after the title
+- Format: "Post Title [→]" (with a space before the arrow)
+- ALWAYS include [→] for EVERY post mention
+- This includes Reddit posts, which should link to either the post or external content
+
 
 INSTRUCTIONS:
 - Type: {briefing_type} (but casual)

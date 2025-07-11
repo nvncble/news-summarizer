@@ -164,15 +164,24 @@ class SocialFeed:
 # Utility functions for social content processing
 
 def create_reddit_post_from_submission(submission, platform="reddit") -> SocialPost:
-    """Convert PRAW submission to SocialPost"""
+    """Convert PRAW submission to SocialPost with proper URLs"""
+    
+    # Determine the best URL to use
+    if submission.is_self:
+        # Self posts - use Reddit permalink
+        post_url = f"https://reddit.com{submission.permalink}"
+    else:
+        # Link posts - provide both
+        post_url = submission.url  # External link
+    
     return SocialPost(
         id=submission.id,
         platform=platform,
         post_type="link" if submission.url != submission.permalink else "text",
         title=submission.title,
         content=submission.selftext or "",
-        url=submission.url if submission.url != submission.permalink else "",
-        source_url=f"https://reddit.com{submission.permalink}",
+        url=post_url,  # Primary URL (external for link posts)
+        source_url=f"https://reddit.com{submission.permalink}",  # Always Reddit link
         author=str(submission.author) if submission.author else "[deleted]",
         subreddit=submission.subreddit.display_name,
         community=submission.subreddit.display_name,
@@ -186,7 +195,6 @@ def create_reddit_post_from_submission(submission, platform="reddit") -> SocialP
         flair=submission.link_flair_text or "",
         domain=submission.domain if hasattr(submission, 'domain') else ""
     )
-
 
 def calculate_interest_score(post: SocialPost, user_preferences: Dict = None) -> float:
     """Calculate AI-based interest score for a post - FIXED VERSION"""

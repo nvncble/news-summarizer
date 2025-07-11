@@ -20,7 +20,7 @@ class StoryDeduplicationManager:
     
     def __init__(self, db_path: str = "rss_feeds.db"):
         self.db_path = db_path
-        self.similarity_threshold = 0.7  # 70% similarity = duplicate
+        self.similarity_threshold = 0.55  # 55% similarity = duplicate
         self.memory_days = 5
         self._init_story_tracking_table()
     

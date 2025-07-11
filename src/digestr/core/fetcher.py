@@ -15,7 +15,8 @@ from urllib.parse import urlparse
 import logging
 
 from .database import DatabaseManager, Article
-
+from digestr.analysis.story_deduplication_manager import StoryDeduplicationManager
+from digestr.core.source_reliability import SourceReliabilityScorer
 logger = logging.getLogger(__name__)
 
 
@@ -102,7 +103,7 @@ class FeedManager:
 
 class ArticleProcessor:
     """Processes individual articles and calculates importance scores"""
-    
+    reliability_scorer = SourceReliabilityScorer()
     @staticmethod
     def extract_content_from_entry(entry) -> str:
         """Extract meaningful content from RSS entry"""
@@ -126,11 +127,11 @@ class ArticleProcessor:
         return content
     
     @staticmethod
-    def calculate_importance_score(entry) -> float:
+    def calculate_importance_score(entry, source: str = None, category: str = None) -> float:
         """Calculate importance score based on various factors"""
         score = 0.0
-        title = entry.get('title', '').lower()
-        summary = entry.get('summary', '').lower()
+        title = (entry.get('title') or '').lower()
+        summary = (entry.get('summary') or '').lower()
         
         # Keywords that indicate importance
         critical_keywords = ['breaking', 'urgent', 'emergency', 'crisis', 'alert']
@@ -166,20 +167,30 @@ class ArticleProcessor:
         if word_count > 200:
             score += 1.5
         
+
+        
         # Title length consideration (very short titles might be less informative)
         title_words = len(title.split())
         if title_words < 3:
             score -= 0.5
         elif title_words > 8:
             score += 0.5
-        
+                
+        temp_article = {
+        'source': source,
+        'category': category,
+        'importance_score': score
+        }
+
+
+        adjusted_score = ArticleProcessor.reliability_scorer.adjust_importance_score(temp_article)
+
         return min(score, 10.0)  # Cap at 10.0
     
     @staticmethod
     def create_article_from_entry(entry, category: str, source: str) -> Article:
-        """Create an Article object from a feedparser entry"""
         content = ArticleProcessor.extract_content_from_entry(entry)
-        importance_score = ArticleProcessor.calculate_importance_score(entry)
+        importance_score = ArticleProcessor.calculate_importance_score(entry, source, category)
         
         return Article(
             title=entry.get('title', ''),
@@ -200,7 +211,7 @@ class RSSFetcher:
     def __init__(self, db_manager: DatabaseManager, feed_manager: FeedManager):
         self.db_manager = db_manager
         self.feed_manager = feed_manager
-    
+        self.dedup_manager = StoryDeduplicationManager(db_manager.db_path) 
     async def fetch_single_feed(self, session: aiohttp.ClientSession, 
                                feed_url: str, category: str) -> Tuple[str, List[Article], float, bool]:
         """
@@ -290,6 +301,8 @@ class RSSFetcher:
         category_counts = {}
         detailed_stats = {}
         
+        all_articles_to_insert = []
+        
         for i, result in enumerate(results):
             category = tasks[i][0]
             
@@ -299,27 +312,46 @@ class RSSFetcher:
             
             articles, feed_stats = result
             
-            # Insert articles into database
-            if articles:
-                inserted_count = self.db_manager.bulk_insert_articles(articles)
-                category_counts[category] = inserted_count
-                
-                # Update feed statistics
-                for feed_url, stats in feed_stats.items():
-                    self.db_manager.update_feed_stats(
-                        feed_url, category, stats['article_count'], 
-                        stats['response_time'], stats['success']
-                    )
-                
-                detailed_stats[category] = feed_stats
-            else:
-                category_counts[category] = 0
+            # Convert Article objects to dicts for deduplication
+            article_dicts = []
+            for article in articles:
+                article_dict = {
+                    'title': article.title,
+                    'summary': article.summary,
+                    'content': article.content,
+                    'url': article.url,
+                    'category': article.category,
+                    'source': article.source,
+                    'published_date': article.published_date,
+                    'importance_score': article.importance_score,
+                    'article_obj': article  # Keep original
+                }
+                article_dicts.append(article_dict)
+            
+            # Apply deduplication
+            fresh_articles, update_articles = self.dedup_manager.filter_articles_for_freshness(article_dicts)
+            
+            # Only insert fresh articles
+            for article_dict in fresh_articles:
+                all_articles_to_insert.append(article_dict['article_obj'])
+            
+            # Log updates
+            if update_articles:
+                logger.info(f"Category {category}: {len(fresh_articles)} fresh, {len(update_articles)} updates")
+            
+            detailed_stats[category] = feed_stats
         
-        total_time = time.time() - start_time
-        total_articles = sum(category_counts.values())
+        # Bulk insert all fresh articles
+        if all_articles_to_insert:
+            inserted_count = self.db_manager.bulk_insert_articles(all_articles_to_insert)
+            
+            # Count by category
+            for article in all_articles_to_insert:
+                cat = article.category
+                category_counts[cat] = category_counts.get(cat, 0) + 1
         
-        logger.info(f"Fetched {total_articles} new articles across {len(category_counts)} categories in {total_time:.2f}s")
-        logger.info(f"Articles by category: {category_counts}")
+        # Cleanup old stories periodically
+        self.dedup_manager.cleanup_old_stories()
         
         return category_counts, detailed_stats
     
