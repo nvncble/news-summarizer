@@ -35,7 +35,9 @@ from digestr.analysis.trend_correlation_engine import TrendCorrelationEngine
 from digestr.analysis.trend_aware_briefing_generator import TrendAwareBriefingGenerator
 from digestr.sources.enhanced_trends24_scraper import EnhancedTrends24Scraper
 from digestr.core.trend_database_manager import TrendDatabaseManager
-
+from digestr.analysis.story_deduplication_manager import StoryDeduplicationManager
+story_dedup = StoryDeduplicationManager(db_manager.db_path)
+story_dedup.cleanup_old_stories()
 
 def get_config_manager():
     """Wrapper function to get config manager"""

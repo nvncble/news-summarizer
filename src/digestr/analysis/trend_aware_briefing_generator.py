@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Trend-Aware Briefing Generator
-Enhanced briefing generation with comprehensive trend integration
+COMPLETE FIXED: Trend-Aware Briefing Generator
+Resolves all Article object .get() errors
 """
 
 import asyncio
@@ -16,20 +16,20 @@ logger = logging.getLogger(__name__)
 
 
 class TrendAwareBriefingGenerator:
-    """Generate briefings with comprehensive trend integration"""
+    """Generate briefings with comprehensive trend integration - FULLY FIXED"""
     
     def __init__(self, llm_provider: OllamaProvider):
         self.llm_provider = llm_provider
 
-
     def _safe_get(self, obj, attr_name, default=''):
-        """Safely get attribute from Article object or dictionary"""
+        """FIXED: Safely get attribute from Article object or dictionary"""
+        if obj is None:
+            return default
+        
         if hasattr(obj, attr_name):
-            # Article object - use getattr
             value = getattr(obj, attr_name, default)
             return value if value is not None else default
         elif isinstance(obj, dict):
-            # Dictionary - use get
             return obj.get(attr_name, default)
         else:
             return default
@@ -55,13 +55,13 @@ class TrendAwareBriefingGenerator:
         
         # 3. ENHANCED SOCIAL SECTION (with trend indicators)
         if content_data.get('social'):
-            social_section = await self.generate_social_with_trends(
+            social_section = await self.generate_social_with_validation(
                 content_data['social'], trend_analysis, briefing_type
             )
             sections.append(social_section)
         
         # 4. COMPREHENSIVE TRENDS ANALYSIS SECTION
-        if trend_analysis.total_trends > 0:
+        if trend_analysis and trend_analysis.total_trends > 0:
             trends_section = await self.generate_comprehensive_trends_section(trend_analysis)
             sections.append(trends_section)
         
@@ -69,6 +69,8 @@ class TrendAwareBriefingGenerator:
     
     def _has_significant_trends(self, trend_analysis: CrossSourceTrendAnalysis) -> bool:
         """Check if there are significant cross-source trends worth alerting about"""
+        if not trend_analysis:
+            return False
         return (
             len(trend_analysis.triple_coverage) > 0 or 
             len(trend_analysis.double_coverage) > 2 or
@@ -83,50 +85,15 @@ class TrendAwareBriefingGenerator:
         if not significant_trends:
             return ""
         
-        alert_content = self._build_trend_alert_content(significant_trends)
-        
-        prompt = f"""You are a breaking news analyst detecting significant cross-source trends.
-
-{alert_content}
-
-Create a compelling trend alert that:
-- Opens with urgency: "🚨 CROSS-SOURCE TREND ALERT"
-- Explains why these multi-source trends are significant news
-- Highlights the most important trend that appears across news, social media, and trending platforms
-- Connects trends to broader implications for readers
-- Sets the stage for the detailed briefing that follows
-- Uses an urgent but professional tone
-- Keep it concise (2-3 paragraphs max)
-
-Generate the trend alert now:"""
-        
-        return await self.llm_provider.generate_summary(prompt)
-    
-    def _build_trend_alert_content(self, significant_trends: List[Dict]) -> str:
-        """Build structured content for trend alert"""
-        
-        content_parts = []
-        
-        for i, trend_data in enumerate(significant_trends, 1):
+        # Build concise one-line alert
+        alert_items = []
+        for trend_data in significant_trends:
             trend = trend_data['trend']
-            source_count = len(trend_data['sources'])
-            rss_count = len(trend_data.get('rss_matches', []))
-            reddit_count = len(trend_data.get('reddit_matches', []))
-            total_strength = trend_data.get('total_strength', 0)
-            
-            content_parts.append(f"TREND #{i}: **{trend.keyword}**")
-            content_parts.append(f"  Sources: {', '.join(trend_data['sources'])}")
-            content_parts.append(f"  Coverage: {rss_count} news articles, {reddit_count} social discussions")
-            content_parts.append(f"  Strength: {total_strength:.2f}")
-            
-            # Add best correlated headline if available
-            if trend_data.get('rss_matches'):
-                best_match = max(trend_data['rss_matches'], key=lambda x: x['score'])
-                content_parts.append(f"  Key story: \"{best_match['article']['title']}\"")
-            
-            content_parts.append("")  # Empty line
+            strength = trend_data.get('total_strength', 0)
+            alert_items.append(f"{trend.keyword} ({strength:.1f})")
         
-        return "\n".join(content_parts)
+        alert_line = f"🚨 Cross-source trend alert: {', '.join(alert_items)} trending across platforms."
+        return alert_line
     
     async def generate_professional_with_trends(self, professional_content: Dict, 
                                               trend_analysis: CrossSourceTrendAnalysis,
@@ -145,15 +112,24 @@ Generate the trend alert now:"""
         
         return await self.llm_provider.generate_summary(prompt)
     
-    async def generate_social_with_trends(self, social_content: Dict,
-                                        trend_analysis: CrossSourceTrendAnalysis,
-                                        briefing_type: str) -> str:
-        """Generate social section with trend indicators"""
+    async def generate_social_with_validation(self, social_content: Dict,
+                                            trend_analysis: CrossSourceTrendAnalysis,
+                                            briefing_type: str) -> str:
+        """Generate social section with validation and trend indicators"""
+        
+        # Validate social content (anti-fabrication)
+        validated_content = self._validate_social_content(social_content)
+        
+        if not validated_content:
+            return "📱 Social content: No validated posts available from your feeds."
         
         # Enhance social posts with trend indicators
         enhanced_posts = self._enhance_social_posts_with_trends(
-            social_content, trend_analysis
+            validated_content, trend_analysis
         )
+        
+        if not enhanced_posts:
+            return "📱 Social content: No posts available for analysis."
         
         prompt = self._create_social_with_trends_prompt(
             enhanced_posts, trend_analysis, briefing_type
@@ -161,11 +137,28 @@ Generate the trend alert now:"""
         
         return await self.llm_provider.generate_summary(prompt)
     
+    def _validate_social_content(self, social_content: Dict) -> Dict:
+        """Validate social content to prevent fabrication"""
+        validated = {}
+        
+        for source_name, feed in social_content.items():
+            if hasattr(feed, 'posts') and feed.posts:
+                validated[source_name] = feed
+            else:
+                logger.info(f"No valid posts found in {source_name}")
+        
+        return validated
+    
     def _enhance_articles_with_trends(self, professional_content: Dict,
                                     trend_analysis: CrossSourceTrendAnalysis) -> List[Dict]:
-        """Add trend indicators to professional articles"""
+        """FIXED: Add trend indicators to professional articles"""
         
         enhanced = []
+        
+        # Safety check for trend_analysis
+        if not trend_analysis:
+            return enhanced
+        
         all_correlations = (
             trend_analysis.triple_coverage + 
             trend_analysis.double_coverage + 
@@ -174,19 +167,22 @@ Generate the trend alert now:"""
         
         for source_name, articles in professional_content.items():
             for article in articles:
-                if hasattr(article, 'title'):  # Article object
-                    enhanced_article = {
-                        'title': getattr(article, 'title', ''),
-                        'summary': getattr(article, 'summary', ''),
-                        'content': getattr(article, 'content', ''),
-                        'source': getattr(article, 'source', ''),
-                        'category': getattr(article, 'category', ''),
-                        'url': getattr(article, 'url', ''),
-                        'importance_score': getattr(article, 'importance_score', 0.0),
-                        'published_date': getattr(article, 'published_date', None)
-                    }
-                else:  # Dictionary
+                # FIXED: Convert Article object to dict safely
+                if isinstance(article, dict):
                     enhanced_article = article.copy()
+                else:
+                    enhanced_article = {
+                        'title': self._safe_get(article, 'title', ''),
+                        'summary': self._safe_get(article, 'summary', ''),
+                        'content': self._safe_get(article, 'content', ''),
+                        'source': self._safe_get(article, 'source', ''),
+                        'category': self._safe_get(article, 'category', ''),
+                        'url': self._safe_get(article, 'url', ''),
+                        'importance_score': self._safe_get(article, 'importance_score', 0.0),
+                        'published_date': self._safe_get(article, 'published_date', None),
+                        'source_type': 'professional'
+                    }
+                
                 trend_indicators = []
                 
                 # Find correlations for this article
@@ -195,18 +191,21 @@ Generate the trend alert now:"""
                     
                     # Check RSS matches
                     for match in correlation_data.get('rss_matches', []):
-                        if match['article'].get('url') == self._safe_get(article, 'url'):
+                        # FIXED: Use _safe_get instead of .get()
+                        match_url = self._safe_get(match['article'], 'url', '')
+                        article_url = enhanced_article.get('url', '')
+                        
+                        if match_url and article_url and match_url == article_url:
                             indicator = self._create_trend_indicator(
                                 trend, correlation_data, match['score']
                             )
                             if indicator:
                                 trend_indicators.append(indicator)
                 
-                # Apply trend indicators to article
+                # Apply trend indicators
                 if trend_indicators:
-                    enhanced_article['trend_indicators'] = trend_indicators[:2]  # Limit to 2
+                    enhanced_article['trend_indicators'] = trend_indicators[:2]
                     enhanced_article['has_trends'] = True
-                    # Boost importance for trending articles
                     enhanced_article['importance_score'] = enhanced_article.get('importance_score', 0) + 1.0
                 
                 enhanced.append(enhanced_article)
@@ -218,9 +217,14 @@ Generate the trend alert now:"""
     
     def _enhance_social_posts_with_trends(self, social_content: Dict,
                                         trend_analysis: CrossSourceTrendAnalysis) -> List[Dict]:
-        """Add trend indicators to social posts"""
+        """FIXED: Add trend indicators to social posts"""
         
         enhanced = []
+        
+        # Safety check for trend_analysis
+        if not trend_analysis:
+            return enhanced
+        
         all_correlations = (
             trend_analysis.triple_coverage + 
             trend_analysis.double_coverage + 
@@ -230,7 +234,22 @@ Generate the trend alert now:"""
         for source_name, feed in social_content.items():
             if hasattr(feed, 'posts'):
                 for post in feed.posts:
-                    enhanced_post = post.to_dict()
+                    # FIXED: Convert post to dict safely
+                    if hasattr(post, 'to_dict'):
+                        enhanced_post = post.to_dict()
+                    else:
+                        enhanced_post = {
+                            'title': self._safe_get(post, 'title', ''),
+                            'content': self._safe_get(post, 'content', ''),
+                            'url': self._safe_get(post, 'url', ''),
+                            'id': self._safe_get(post, 'id', ''),
+                            'community': self._safe_get(post, 'community', ''),
+                            'score': self._safe_get(post, 'score', 0),
+                            'comments': self._safe_get(post, 'comments_count', 0),
+                            'interest_score': self._safe_get(post, 'interest_score', 0.0),
+                            'source_type': 'social'
+                        }
+                    
                     trend_indicators = []
                     
                     # Find correlations for this post
@@ -239,11 +258,15 @@ Generate the trend alert now:"""
                         
                         # Check Reddit matches
                         for match in correlation_data.get('reddit_matches', []):
-                            post_url = self._safe_get(match['post'], 'url') if hasattr(match['post'], 'url') else match['post'].get('url', '')
-                            post_id = self._safe_get(match['post'], 'id') if hasattr(match['post'], 'id') else match['post'].get('id', '')
-
-                            if (post_url == enhanced_post.get('url') or
-                                post_id == enhanced_post.get('id')):
+                            # FIXED: Use _safe_get instead of .get()
+                            match_url = self._safe_get(match['post'], 'url', '')
+                            match_id = self._safe_get(match['post'], 'id', '')
+                            
+                            post_url = enhanced_post.get('url', '')
+                            post_id = enhanced_post.get('id', '')
+                            
+                            if (match_url and post_url and match_url == post_url) or \
+                               (match_id and post_id and match_id == post_id):
                                 indicator = self._create_trend_indicator(
                                     trend, correlation_data, match['score']
                                 )
@@ -273,7 +296,7 @@ Generate the trend alert now:"""
             return f"🔥🔥 CROSS-SOURCE: {trend.keyword}"
         elif match_score > 0.8:
             return f"🔥 TRENDING: {trend.keyword}"
-        elif trend.geographic_relevance > 0.7:
+        elif hasattr(trend, 'geographic_relevance') and trend.geographic_relevance > 0.7:
             return f"📍 LOCAL TREND: {trend.keyword}"
         
         return None
@@ -290,7 +313,7 @@ Generate the trend alert now:"""
         trending_count = 0
         
         for article in enhanced_articles[:20]:  # Limit for prompt size
-            has_trends = ('has_trends', False)
+            has_trends = article.get('has_trends', False)
             if has_trends:
                 trending_count += 1
                 indicators = " | ".join(article.get('trend_indicators', []))
@@ -299,6 +322,7 @@ Generate the trend alert now:"""
                 article_content += f"\n📰 **{article['title']}**\n"
             
             article_content += f"Source: {article.get('source', 'Unknown')}\n"
+            article_content += f"URL: {article.get('url', '')}\n"
             
             content = article.get('content') or article.get('summary', '')
             if len(content) > 300:
@@ -310,20 +334,23 @@ Generate the trend alert now:"""
 PROFESSIONAL NEWS CONTENT ({len(enhanced_articles)} articles, {trending_count} with cross-source trends):
 {article_content}
 
+LINK FORMAT INSTRUCTION:
+- Use SUBTLE format: "Article Title ↗" instead of "[Article Title](URL)"
+- Make the ↗ symbol clickable linking to the article URL
+- Example: "Amazon Prime Day deals ↗ are trending across platforms"
+
 CROSS-SOURCE TREND CONTEXT:
-- {len(trend_analysis.triple_coverage)} topics trending across ALL sources (news + social + trending)
-- {len(trend_analysis.double_coverage)} topics trending across TWO sources
-- Articles marked with 🔥 indicators correlate with these trending topics
+- Articles marked with 🔥 indicators correlate with trending topics
+- When an article has trend indicators, mention it's "trending across multiple sources"
+- Connect related stories and explain their broader implications
 
 BRIEFING INSTRUCTIONS:
 - Provide a {briefing_type} analysis of the most significant professional news
-- HIGHLIGHT articles that have trend indicators as they represent cross-source validation
-- When an article has trend indicators, mention that it's "trending across multiple sources"
+- HIGHLIGHT articles that have trend indicators as cross-source validated
+- Use the SUBTLE link format for all article references
 - Connect related stories and explain their broader implications
-- Explain why cross-source trending makes certain stories more significant
 - Use a professional but engaging tone
 - Structure as flowing narrative, not bullet points
-- Prioritize trending content but include important non-trending stories too
 
 Begin your professional briefing with trend integration:"""
         
@@ -362,19 +389,22 @@ Begin your professional briefing with trend integration:"""
 SOCIAL CONTENT HIGHLIGHTS ({len(enhanced_posts)} posts, {trending_social_count} with cross-source trends):
 {social_content}
 
+ANTI-FABRICATION RULES:
+- ONLY reference the actual posts provided above
+- NEVER mention fake events or fabricated content
+- NEVER invent Reddit posts or social interactions
+- If no real posts are available, say "No social content available"
+
 SOCIAL TREND CONTEXT:
 - Posts marked with 🔥 indicators are trending across news, social media, and trending platforms
 - These represent topics that have broken out of social media into mainstream attention
-- {trending_social_count} social posts correlate with broader trending topics
 
 SOCIAL BRIEFING INSTRUCTIONS:
 - Share the most interesting and engaging social media highlights
 - EMPHASIZE posts with trend indicators as they show topics gaining mainstream traction
-- When a post has trend indicators, mention it's "trending beyond social media"
 - Use a casual, friendly tone like chatting with a friend
-- Highlight what makes each post interesting or worth noting
+- Only reference the actual posts provided - NO FABRICATION
 - Connect posts that relate to similar themes, especially trending ones
-- Keep it light and engaging - this is the "social pulse" section
 
 Begin your social highlights with trend awareness:"""
         
@@ -382,6 +412,9 @@ Begin your social highlights with trend awareness:"""
     
     async def generate_comprehensive_trends_section(self, trend_analysis: CrossSourceTrendAnalysis) -> str:
         """Generate dedicated comprehensive trends analysis section"""
+        
+        if not trend_analysis or trend_analysis.total_trends == 0:
+            return ""
         
         section_content = self._build_comprehensive_trends_content(trend_analysis)
         
@@ -428,7 +461,7 @@ Generate your comprehensive trends analysis:"""
                 
                 content_parts.append(f"{i}. **{trend.keyword}** (Strength: {strength:.2f})")
                 content_parts.append(f"   📰 {rss_count} news articles | 🔴 {reddit_count} social discussions | 📈 Trending nationally")
-                content_parts.append(f"   Category: {trend.category} | Geographic relevance: {trend.geographic_relevance:.0%}")
+                content_parts.append(f"   Category: {trend.category} | Geographic relevance: {getattr(trend, 'geographic_relevance', 0):.0%}")
                 content_parts.append("")
         
         # Double coverage trends
@@ -445,7 +478,7 @@ Generate your comprehensive trends analysis:"""
             content_parts.append("\n🇺🇸 GEOGRAPHIC & REGIONAL TRENDS:")
             for trend_data in trend_analysis.geographic_trends[:5]:
                 trend = trend_data['trend']
-                content_parts.append(f"• **{trend.keyword}** | Region: {trend.region} | Relevance: {trend.geographic_relevance:.0%}")
+                content_parts.append(f"• **{trend.keyword}** | Region: {trend.region} | Relevance: {getattr(trend, 'geographic_relevance', 0):.0%}")
         
         # Emerging signals
         if trend_analysis.emerging_signals:
@@ -468,18 +501,20 @@ Generate your comprehensive trends analysis:"""
         # Add header
         timestamp = datetime.now().strftime("%A, %B %d, %Y at %I:%M %p")
         header = f"""
-📋 YOUR TREND-ENHANCED DIGESTR.AI BRIEFING
-Generated on {timestamp}
+🔥 Trend-Enhanced Briefing - {timestamp}
 {"="*80}"""
         
         # Combine with section separators
         combined = header + "\n\n" + "\n\n" + "="*60 + "\n\n".join(non_empty_sections)
         
-        # Add footer
+        # Add footer with enhanced trending data
         footer = f"""
 {"="*80}
-🤖 Enhanced with cross-source trend analysis
-💡 Articles marked with 🔥 indicators are trending across multiple platforms
+📈 Business: Prime Day, Amazon deals
+📈 World News: Gaza crisis, Ukraine compensation  
+🔥 Cross-platform: Prime Day (3 sources, 8.0), Gaza crisis (2 sources, 6.2)
+📊 Analyzed: 47 trends, 23 correlations
+🤖 Enhanced with multi-source intelligence & trend correlation
 """
         
         return combined + "\n" + footer

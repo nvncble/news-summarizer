@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Enhanced Briefing Generator
-Handles structured briefings with professional and social content sections
+Enhanced Briefing Generator - FIXED VERSION
+Added links, removed fluff, condensed prompts
 """
 
 import asyncio
@@ -57,10 +57,7 @@ class StructuredBriefing:
 
 
 class EnhancedBriefingGenerator:
-    """
-    Enhanced briefing generator that handles both professional and social content
-    Creates structured briefings with separate sections and appropriate styling
-    """
+    """Enhanced briefing generator - NO FLUFF, WITH LINKS"""
     
     def __init__(self, llm_provider: OllamaProvider, config_manager):
         self.llm_provider = llm_provider
@@ -74,9 +71,7 @@ class EnhancedBriefingGenerator:
         briefing_type: str = "comprehensive",
         structure: str = "default"
     ) -> StructuredBriefing:
-        """
-        Generate a structured briefing with professional and social sections
-        """
+        """Generate a structured briefing with professional and social sections"""
         timestamp = datetime.now().strftime("%A, %B %d, %Y at %I:%M %p")
         sections = []
         
@@ -117,7 +112,7 @@ class EnhancedBriefingGenerator:
         }
         
         # Create structured briefing
-        briefing_title = f"{briefing_type.title()} Daily Intelligence Briefing"
+        briefing_title = f"{briefing_type.title()} Intelligence Briefing"
         
         return StructuredBriefing(
             title=briefing_title,
@@ -131,10 +126,10 @@ class EnhancedBriefingGenerator:
         professional_content: Dict[str, List],
         briefing_type: str
     ) -> Optional[BriefingSection]:
-        """Generate the professional news section"""
+        """Generate the professional news section - WITH LINKS, NO FLUFF"""
         
         # Convert to LLM format
-        from digestr.sources.updated_source_manager import prepare_professional_content_for_llm
+        from digestr.sources.source_manager import prepare_professional_content_for_llm
         articles = prepare_professional_content_for_llm(professional_content)
         
         if not articles:
@@ -144,17 +139,16 @@ class EnhancedBriefingGenerator:
         style_config = self.briefing_config.get('styles', {}).get('professional', {})
         tone = style_config.get('tone', 'analytical and informative')
         focus = style_config.get('focus', 'implications and significance')
-        greeting = style_config.get('greeting', 'Here\'s your professional briefing')
         
-        # Create professional briefing prompt
-        prompt = self._create_professional_prompt(articles, briefing_type, tone, focus, greeting)
+        # Create professional briefing prompt - FIXED VERSION
+        prompt = self._create_professional_prompt_fixed(articles, briefing_type, tone, focus)
         
         # Generate content
         logger.info(f"Generating professional section with {len(articles)} articles")
         content = await self.llm_provider.generate_summary(prompt)
         
         return BriefingSection(
-            title="📰 Professional News Briefing",
+            title="📰 Professional News Analysis",
             content=content,
             section_type="professional",
             source_count=len(professional_content),
@@ -166,10 +160,10 @@ class EnhancedBriefingGenerator:
         social_content: Dict[str, SocialFeed],
         briefing_type: str
     ) -> Optional[BriefingSection]:
-        """Generate the social content section"""
+        """Generate the social content section - WITH LINKS, NO FLUFF"""
         
         # Convert to LLM format
-        from digestr.sources.updated_source_manager import prepare_social_content_for_llm
+        from digestr.sources.source_manager import prepare_social_content_for_llm
         posts = prepare_social_content_for_llm(social_content)
         
         if not posts:
@@ -179,32 +173,30 @@ class EnhancedBriefingGenerator:
         style_config = self.briefing_config.get('styles', {}).get('social', {})
         tone = style_config.get('tone', 'casual and conversational')
         focus = style_config.get('focus', 'interesting highlights from your personal feeds')
-        greeting = style_config.get('greeting', 'And here\'s what\'s happening in your corner of Reddit')
         
-        # Create social briefing prompt
-        prompt = self._create_social_prompt(posts, briefing_type, tone, focus, greeting)
+        # Create social briefing prompt - FIXED VERSION
+        prompt = self._create_social_prompt_fixed(posts, briefing_type, tone, focus)
         
         # Generate content
         logger.info(f"Generating social section with {len(posts)} posts")
         content = await self.llm_provider.generate_summary(prompt)
         
         return BriefingSection(
-            title="🎯 Personal Social Briefing",
+            title="🎯 Social Highlights",
             content=content,
             section_type="social",
             source_count=len(social_content),
             item_count=len(posts)
         )
     
-    def _create_professional_prompt(
+    def _create_professional_prompt_fixed(
         self,
         articles: List[Dict],
         briefing_type: str,
         tone: str,
-        focus: str,
-        greeting: str
+        focus: str
     ) -> str:
-        """Create prompt for professional news section"""
+        """Create prompt for professional news section - FIXED: NO FLUFF, WITH LINKS"""
         
         current_time = datetime.now().strftime("%A, %B %d, %Y at %I:%M %p")
         
@@ -216,7 +208,7 @@ class EnhancedBriefingGenerator:
                 categorized[cat] = []
             categorized[cat].append(article)
         
-        # Build article content
+        # Build article content WITH URLS
         article_content = ""
         for category, cat_articles in categorized.items():
             article_content += f"\n### {category.upper().replace('_', ' ')} ({len(cat_articles)} articles)\n"
@@ -230,6 +222,7 @@ class EnhancedBriefingGenerator:
                 
                 article_content += f"\n{indicator} **{article['title']}**\n"
                 article_content += f"Source: {article.get('source', 'Unknown')}\n"
+                article_content += f"URL: {article.get('url', '')}\n"  # ADD URL FOR LINKS
                 
                 # Use content or summary
                 content = article.get('content') or article.get('summary', '')
@@ -237,39 +230,37 @@ class EnhancedBriefingGenerator:
                     content = content[:300] + "..."
                 article_content += f"{content}\n---\n"
         
-        prompt = f"""You are a professional news analyst providing a briefing. Current time: {current_time}
-
-{greeting}
+        prompt = f"""You are a professional news analyst providing an {briefing_type} briefing.
 
 PROFESSIONAL NEWS CONTENT:
 {article_content}
 
-BRIEFING STYLE:
+BRIEFING REQUIREMENTS:
 - Type: {briefing_type}
 - Tone: {tone}
 - Focus: {focus}
 
-INSTRUCTIONS:
-- Provide a comprehensive analysis of the most significant developments
-- Connect related stories and explain their broader implications
-- Highlight what matters most for understanding current events
-- Use a professional but engaging tone
-- Structure as flowing narrative, not bullet points
-- Explain the significance of key developments
+CRITICAL INSTRUCTIONS:
+- INCLUDE CLICKABLE LINKS: Format every story as [title](URL) when mentioning articles
+- NO introductory paragraphs or meta-commentary
+- NO concluding summaries ("In conclusion..." etc.)
+- Jump straight into the analysis
+- Connect related stories and explain implications
+- Keep it analytical but concise
+- Focus on significance and broader context
 
-Begin your professional briefing:"""
+Begin your analysis immediately:"""
 
         return prompt
     
-    def _create_social_prompt(
+    def _create_social_prompt_fixed(
         self,
         posts: List[Dict],
         briefing_type: str,
         tone: str,
-        focus: str,
-        greeting: str
+        focus: str
     ) -> str:
-        """Create prompt for social content section"""
+        """Create prompt for social content section - FIXED: NO FLUFF, WITH LINKS"""
         
         current_time = datetime.now().strftime("%A, %B %d, %Y at %I:%M %p")
         
@@ -286,7 +277,7 @@ Begin your professional briefing:"""
             
             grouped_posts[platform][community].append(post)
         
-        # Build social content
+        # Build social content WITH URLS
         social_content = ""
         for platform, communities in grouped_posts.items():
             social_content += f"\n### {platform.upper().replace('_', ' ')} HIGHLIGHTS\n"
@@ -303,34 +294,33 @@ Begin your professional briefing:"""
                     engagement = "🔥" if score > 1000 else "📈" if score > 100 else "💬"
                     
                     social_content += f"\n{engagement} **{post['title']}** ({score} ⬆️, {comments} 💬)\n"
+                    social_content += f"URL: {post.get('url', '')}\n"  # ADD URL FOR LINKS
                     
                     content = post.get('content', '')[:200]
                     if content:
                         social_content += f"{content}...\n"
                     social_content += "---\n"
         
-        prompt = f"""You are a friendly social media curator sharing interesting highlights. Current time: {current_time}
-
-{greeting}
+        prompt = f"""You are a social media curator sharing highlights.
 
 SOCIAL CONTENT HIGHLIGHTS:
 {social_content}
 
-SOCIAL BRIEFING STYLE:
+INSTRUCTIONS:
 - Type: {briefing_type} (but casual)
 - Tone: {tone}
 - Focus: {focus}
 
-INSTRUCTIONS:
-- Share the most interesting, entertaining, or thought-provoking posts
-- Use a casual, friendly tone like chatting with a friend
-- Highlight what makes each post interesting or worth noting
-- Connect posts that relate to similar themes
-- Keep it light and engaging - this is the "fun" section
-- Mention the communities and engagement levels naturally
-- Don't just list posts - tell me why they're worth my attention
+CRITICAL REQUIREMENTS:
+- INCLUDE CLICKABLE LINKS: Format as [post title](URL) when mentioning posts
+- NO lengthy introductions or greetings
+- NO concluding paragraphs
+- Jump straight into the highlights
+- Highlight what makes each post interesting
+- Keep it engaging but focused
+- Mention engagement levels naturally
 
-Begin your social highlights:"""
+Begin your social highlights immediately:"""
 
         return prompt
     
@@ -340,7 +330,7 @@ Begin your social highlights:"""
         social_content: Dict[str, SocialFeed] = None,
         briefing_type: str = "comprehensive"
     ) -> str:
-        """Generate a traditional combined briefing (legacy format)"""
+        """Generate a traditional combined briefing (legacy format) - FIXED VERSION"""
         
         structured_briefing = await self.generate_structured_briefing(
             professional_content, social_content, briefing_type, "default"

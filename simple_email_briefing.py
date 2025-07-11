@@ -13,6 +13,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from datetime import datetime
 import logging
+from typing import List, Dict, Optional, Any
 
 # Load environment variables from .env file
 from dotenv import load_dotenv
@@ -28,6 +29,99 @@ from digestr.llm_providers.enhanced_briefing_generator import EnhancedBriefingGe
 from digestr.analysis.trend_correlation_engine import TrendCorrelationEngine
 from digestr.analysis.trend_structures import GeographicConfig
 from digestr.sources.enhanced_trends24_scraper import EnhancedTrends24Scraper
+from digestr.analysis.trend_aware_briefing_generator import TrendAwareBriefingGenerator
+
+
+def make_links_clickable_in_briefing(briefing_content: str, content_data: Dict) -> str:
+    """Convert ↗ format to clickable HTML links"""
+    import re
+    
+    # Extract article URLs
+    article_urls = {}
+    for source_name, articles in content_data.get('professional', {}).items():
+        for article in articles:
+            if isinstance(article, dict):
+                title = article.get('title', '')
+                url = article.get('url', '')
+            else:
+                title = getattr(article, 'title', '')
+                url = getattr(article, 'url', '')
+            
+            if title and url:
+                article_urls[title] = url
+    
+    # Pattern to find "text ↗" format
+    arrow_pattern = r'([^↗\n]+)\s*↗'
+    
+    def replace_arrow_link(match):
+        title_text = match.group(1).strip()
+        
+        # Simple keyword matching to find URLs
+        matching_url = None
+        title_words = title_text.lower().split()
+        
+        for stored_title, url in article_urls.items():
+            # Check if any significant words from the title appear in stored title
+            if len(title_words) >= 2:
+                key_words = title_words[-3:]  # Last 3 words usually most specific
+                if any(word in stored_title.lower() for word in key_words if len(word) > 3):
+                    matching_url = url
+                    break
+        
+        if matching_url:
+            return f'<a href="{matching_url}" style="color: #007bff; text-decoration: none;">{title_text}</a>'
+        else:
+            return title_text
+    
+    return re.sub(arrow_pattern, replace_arrow_link, briefing_content)
+
+
+def safe_article_access(obj, attr_name, default=''):
+    """Safe access for Article objects and dictionaries"""
+    if obj is None:
+        return default
+    if hasattr(obj, attr_name):
+        value = getattr(obj, attr_name, default)
+        return value if value is not None else default
+    elif isinstance(obj, dict):
+        return obj.get(attr_name, default)
+    else:
+        return default
+
+def convert_articles_to_dicts(articles):
+    """Convert Article objects to dictionaries"""
+    if not articles:
+        return []
+    
+    converted = []
+    for article in articles:
+        if isinstance(article, dict):
+            converted.append(article)
+        else:
+            # Convert Article object to dict
+            article_dict = {
+                'title': safe_article_access(article, 'title', ''),
+                'summary': safe_article_access(article, 'summary', ''),
+                'content': safe_article_access(article, 'content', ''),
+                'url': safe_article_access(article, 'url', ''),
+                'category': safe_article_access(article, 'category', ''),
+                'source': safe_article_access(article, 'source', ''),
+                'published_date': safe_article_access(article, 'published_date', ''),
+                'importance_score': safe_article_access(article, 'importance_score', 0.0),
+                'source_type': 'professional'
+            }
+            converted.append(article_dict)
+    return converted
+
+
+
+
+
+
+
+
+
+
 
 # Email Configuration
 SMTP_SERVER = os.getenv('DIGESTR_SMTP_SERVER', 'smtp.gmail.com')
