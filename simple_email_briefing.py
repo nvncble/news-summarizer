@@ -15,6 +15,7 @@ from datetime import datetime
 import logging
 from typing import List, Dict, Optional, Any
 
+
 # Load environment variables from .env file
 from dotenv import load_dotenv
 load_dotenv()
@@ -30,11 +31,11 @@ from digestr.analysis.trend_correlation_engine import TrendCorrelationEngine
 from digestr.analysis.trend_structures import GeographicConfig
 from digestr.sources.enhanced_trends24_scraper import EnhancedTrends24Scraper
 from digestr.analysis.trend_aware_briefing_generator import TrendAwareBriefingGenerator
-
+from digestr.core.reliable_link_processor import ReliableLinkProcessor
 
 def make_links_clickable_in_briefing(briefing_content: str, content_data: Dict) -> str:
     """Convert [→] format to clickable HTML links"""
-    from digestr.core.link_processor import LinkProcessor
+    from digestr.core.link_processor import ReliableLinkProcessor
     
     # Collect all articles and posts
     all_items = []
@@ -42,10 +43,18 @@ def make_links_clickable_in_briefing(briefing_content: str, content_data: Dict) 
     # Professional articles
     for source_name, articles in content_data.get('professional', {}).items():
         for article in articles:
-            all_items.append({
-                'title': article.get('title', ''),
-                'url': article.get('url', '')
-            })
+            # Handle both dict and Article objects
+            if isinstance(article, dict):
+                all_items.append({
+                    'title': article.get('title', ''),
+                    'url': article.get('url', '')
+                })
+            else:
+                # Article object - use getattr
+                all_items.append({
+                    'title': getattr(article, 'title', ''),
+                    'url': getattr(article, 'url', '')
+                })
     
     # Social posts
     for source_name, feed in content_data.get('social', {}).items():
@@ -57,13 +66,12 @@ def make_links_clickable_in_briefing(briefing_content: str, content_data: Dict) 
                 })
     
     # Process content
-    processor = LinkProcessor()
+    processor = ReliableLinkProcessor()
     processed = processor.process_briefing_content(briefing_content, all_items)
     
-    # Convert to HTML
-    html_content = processor.format_for_html_email(processed)
     
-    return html_content
+    
+    return processed
     
     # def replace_arrow_link(match):
     #     title_text = match.group(1).strip()
@@ -142,10 +150,14 @@ SENDER_EMAIL = os.getenv('DIGESTR_SENDER_EMAIL', '')
 SENDER_PASSWORD = os.getenv('DIGESTR_SENDER_PASSWORD', '')
 
 RECIPIENTS = []
-for i in range(1, 6):
+i = 1
+while True:
     recipient = os.getenv(f'DIGESTR_RECIPIENT_{i}')
     if recipient:
         RECIPIENTS.append(recipient)
+        i += 1
+    else:
+        break
 
 if not RECIPIENTS:
     print("❌ No recipients configured. Set DIGESTR_RECIPIENT_1 environment variable.")
@@ -177,10 +189,11 @@ class EnhancedEmailBriefer:
         else:
             return "Night"
 
-    async def generate_and_send_enhanced_briefing(self, style="comprehensive", force_fresh=True):
-        """Generate enhanced briefing with trend analysis and send email"""
+    async def generate_and_send_enhanced_briefing_with_reliable_links(self, style="comprehensive", force_fresh=True):
+        """Generate briefing with guaranteed clickable links"""
+        
         try:
-            print(f"🚀 Starting enhanced {style} briefing...")
+            print(f"🚀 Starting enhanced {style} briefing with reliable linking...")
             
             # Initialize source manager
             from digestr.core.database import DatabaseManager
@@ -227,8 +240,7 @@ class EnhancedEmailBriefer:
             
             # Generate enhanced briefing
             print("🤖 Generating enhanced briefing...")
-            briefing_generator = EnhancedBriefingGenerator(None, self.config_manager)
-            
+
             if trend_analysis:
                 # Use trend-aware briefing generator
                 from digestr.analysis.trend_aware_briefing_generator import TrendAwareBriefingGenerator
@@ -246,10 +258,17 @@ class EnhancedEmailBriefer:
                     content_data, trend_analysis, style
                 )
             else:
-                # Use standard enhanced briefing
-                briefing = await briefing_generator.generate_combined_briefing(
-                    professional_content, social_content, style
+                # Use standard briefing generator - try different method names
+                from digestr.llm_providers.ollama import OllamaProvider
+                llm_provider = OllamaProvider()
+                briefing_generator = EnhancedBriefingGenerator(llm_provider, self.config_manager)
+                
+                # Try these methods in order until one works:
+                # Use the method that exists (per Python's suggestion)
+                structured_briefing = await briefing_generator.generate_structured_briefing(
+                    professional_content, social_content, style, "default"
                 )
+                briefing = structured_briefing.get_full_content()
             
             if not briefing or len(briefing.strip()) < 100:
                 print(f"❌ Briefing generation failed or too short: {len(briefing)} chars")
@@ -258,7 +277,46 @@ class EnhancedEmailBriefer:
                 return
             
             print("✅ Enhanced briefing generated successfully")
+            all_articles = []
+
+            for source_name, articles in professional_content.items():
+                if isinstance(articles, list):
+                    for article in articles:
+                        if isinstance(article, dict):
+                            all_articles.append(article)
+                        else:
+                            # Convert Article object to dict
+                            all_articles.append({
+                                'title': getattr(article, 'title', ''),
+                                'url': getattr(article, 'url', ''),
+                                'source': getattr(article, 'source', ''),
+                                'summary': getattr(article, 'summary', ''),
+                                'content': getattr(article, 'content', ''),
+                            })
+        
+            # Collect social posts
+            for source_name, feed in social_content.items():
+                if hasattr(feed, 'posts'):
+                    for post in feed.posts:
+                        all_articles.append({
+                            'title': post.title,
+                            'url': post.url or post.source_url,
+                            'source': f"r/{post.subreddit}" if post.subreddit else post.platform,
+                            'content': post.content,
+                        })
             
+            print("🔗 Processing links in briefing...")
+            content_data = {
+                'professional': professional_content,
+                'social': social_content
+            }
+            final_briefing = make_links_clickable_in_briefing(briefing, content_data)
+
+            print("✅ Enhanced briefing with reliable links generated successfully")
+            
+           
+
+
             # Send email
             current_time = datetime.now()
             time_period = self.get_time_period(current_time.hour)
@@ -266,7 +324,7 @@ class EnhancedEmailBriefer:
             trend_indicator = "🔥 Trend-Enhanced" if trend_analysis else "📰"
             subject = f"{trend_indicator} {time_period} Digestr Briefing - {current_time.strftime('%B %d, %Y')}"
             
-            await self.send_email(subject, briefing)
+            await self.send_email(subject, final_briefing, all_articles)
             
             # Mark articles as processed
             if total_professional > 0:
@@ -286,7 +344,7 @@ class EnhancedEmailBriefer:
             await self.send_email("❌ Digestr Enhanced Briefing Error", 
                                 f"An error occurred while generating your enhanced briefing:\n\n{str(e)}\n\nTime: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     
-    async def send_email(self, subject, body):
+    async def send_email(self, subject, body, articles=None):
         """Send email via SMTP with SSL (known working config)"""
         smtp_configs = [
             {"server": "smtp.gmail.com", "port": 465, "method": "SSL"},
@@ -305,7 +363,8 @@ class EnhancedEmailBriefer:
                 text_part = MIMEText(body, "plain", "utf-8")
                 message.attach(text_part)
                 
-                html_body = self.create_html_email(body, subject)
+                html_body = self.create_enhanced_html_email(body, subject, articles or [])
+
                 html_part = MIMEText(html_body, "html", "utf-8")
                 message.attach(html_part)
                 
@@ -329,10 +388,17 @@ class EnhancedEmailBriefer:
         
         logger.error(f"Failed to send email with all SMTP configurations")
     
-    def create_html_email(self, content, subject):
-        """Create enhanced HTML email"""
+    def create_enhanced_html_email(self, content, subject, articles):
+        """Create HTML email with reliable clickable links"""
+        
+        # Process content to ensure all links are clickable
+        link_processor = ReliableLinkProcessor()
+        html_content = content
+        
         timestamp = datetime.now().strftime("%A, %B %d, %Y at %I:%M %p")
-        html_content = content.replace('\n\n', '</p><p>').replace('\n', '<br>')
+        
+        # Convert newlines to proper HTML
+        formatted_content = html_content.replace('\n\n', '</p><p>').replace('\n', '<br>')
         
         html = f"""
         <!DOCTYPE html>
@@ -340,28 +406,73 @@ class EnhancedEmailBriefer:
         <head>
             <meta charset="UTF-8">
             <title>{subject}</title>
+            <style>
+                body {{ 
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; 
+                    line-height: 1.6; 
+                    color: #333; 
+                    max-width: 800px; 
+                    margin: 0 auto; 
+                    padding: 20px; 
+                }}
+                .header {{ 
+                    text-align: center; 
+                    border-bottom: 3px solid #007bff; 
+                    padding-bottom: 20px; 
+                    margin-bottom: 30px; 
+                }}
+                .content {{ 
+                    font-size: 16px; 
+                    line-height: 1.8; 
+                }}
+                .content p {{ 
+                    margin-bottom: 16px; 
+                }}
+                a {{ 
+                    color: #007bff; 
+                    text-decoration: none; 
+                    font-weight: bold;
+                }}
+                a:hover {{ 
+                    text-decoration: underline; 
+                }}
+                .footer {{ 
+                    margin-top: 40px; 
+                    padding-top: 20px; 
+                    border-top: 2px solid #eee; 
+                    text-align: center; 
+                    color: #666; 
+                }}
+                .stats {{ 
+                    font-size: 12px; 
+                    color: #999; 
+                }}
+            </style>
         </head>
-        <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 800px; margin: 0 auto; padding: 20px;">
-            
-            <div style="text-align: center; border-bottom: 3px solid #007bff; padding-bottom: 20px; margin-bottom: 30px;">
+        <body>
+            <div class="header">
                 <h1 style="color: #007bff; margin: 0;">{subject}</h1>
                 <p style="color: #666; margin: 10px 0;">{timestamp}</p>
-                <p style="color: #28a745; font-size: 14px;">Enhanced with Multi-Source Intelligence & Trend Analysis</p>
+                <p style="color: #28a745; font-size: 14px;">🔗 All Sources Linked • 🤖 AI Enhanced</p>
             </div>
             
-            <div style="font-size: 16px; line-height: 1.8;">
-                <p>{html_content}</p>
+            <div class="content">
+                <p>{formatted_content}</p>
             </div>
             
-            <div style="margin-top: 40px; padding-top: 20px; border-top: 2px solid #eee; text-align: center; color: #666;">
-                <p><strong>🤖 Digestr.ai Enhanced</strong><br>
-                Multi-Source News Intelligence with Trend Analysis</p>
-                <p style="font-size: 12px;">RSS • Reddit • Trending Topics • AI Analysis</p>
+            <div class="footer">
+                <p><strong>🤖 Digestr.ai Enhanced Briefing</strong></p>
+                <p class="stats">
+                    📊 {len(articles)} articles analyzed • 🔗 All sources linked for deep-dive reading
+                </p>
+                <p style="font-size: 12px;">
+                    Multi-Source Intelligence: RSS • Reddit • Trending Topics
+                </p>
             </div>
-            
         </body>
         </html>
         """
+        
         return html
     
     async def test_email(self):
@@ -394,13 +505,13 @@ async def main():
             print("🧪 Testing enhanced email functionality...")
             await briefer.test_email()
         elif command in ["comprehensive", "quick", "analytical"]:
-            force_fresh = "--fresh" in sys.argv or True  # Default to fresh
-            await briefer.generate_and_send_enhanced_briefing(command, force_fresh)
+            force_fresh = "--cached" not in sys.argv  # Default to fresh
+            await briefer.generate_and_send_enhanced_briefing_with_reliable_links(command, force_fresh)
         else:
             print("Usage: python enhanced_email_briefing.py [comprehensive|quick|analytical|test] [--fresh]")
             print("Enhanced briefing with trend analysis and multi-source intelligence.")
     else:
-        await briefer.generate_and_send_enhanced_briefing("comprehensive")
+        await briefer.generate_and_send_enhanced_briefing_with_reliable_links("comprehensive")
 
 
 if __name__ == "__main__":
